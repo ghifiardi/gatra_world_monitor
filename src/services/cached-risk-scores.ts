@@ -46,12 +46,41 @@ let fetchPromise: Promise<CachedRiskScores | null> | null = null;
 let lastFetchTime = 0;
 const REFETCH_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 
+function createAbortError(): DOMException {
+  return new DOMException('The operation was aborted.', 'AbortError');
+}
+
+function withCallerAbort<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
+  if (!signal) return promise;
+  if (signal.aborted) return Promise.reject(createAbortError());
+
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () => {
+      signal.removeEventListener('abort', onAbort);
+      reject(createAbortError());
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+
+    promise.then(
+      (value) => {
+        signal.removeEventListener('abort', onAbort);
+        resolve(value);
+      },
+      (error) => {
+        signal.removeEventListener('abort', onAbort);
+        reject(error);
+      },
+    );
+  });
+}
+
 async function loadPersistentRiskScores(): Promise<CachedRiskScores | null> {
   const entry = await getPersistentCache<CachedRiskScores>(RISK_CACHE_KEY);
   return entry?.data ?? null;
 }
 
 export async function fetchCachedRiskScores(signal?: AbortSignal): Promise<CachedRiskScores | null> {
+  if (signal?.aborted) throw createAbortError();
   const now = Date.now();
 
   if (cachedScores && now - lastFetchTime < REFETCH_INTERVAL_MS) {
@@ -59,12 +88,13 @@ export async function fetchCachedRiskScores(signal?: AbortSignal): Promise<Cache
   }
 
   if (fetchPromise) {
-    return fetchPromise;
+    return withCallerAbort(fetchPromise, signal);
   }
 
   fetchPromise = (async () => {
     try {
-      const response = await fetch('/api/risk-scores', { signal });
+      // Shared fetch must not be canceled by one caller's AbortSignal.
+      const response = await fetch('/api/risk-scores');
       if (!response.ok) {
         console.warn('[CachedRiskScores] API error:', response.status);
         return cachedScores ?? await loadPersistentRiskScores();
@@ -86,7 +116,7 @@ export async function fetchCachedRiskScores(signal?: AbortSignal): Promise<Cache
     }
   })();
 
-  return fetchPromise;
+  return withCallerAbort(fetchPromise, signal);
 }
 
 export function getCachedScores(): CachedRiskScores | null {
