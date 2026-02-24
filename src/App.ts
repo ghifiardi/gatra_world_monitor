@@ -86,7 +86,7 @@ import { GatraSOCDashboardPanel } from '@/panels/gatra-soc-panel';
 import { IoCLookupPanel } from '@/panels/ioc-lookup-panel';
 import { RansomwareTrackerPanel } from '@/panels/ransomware-tracker-panel';
 import { CVEFeedPanel } from '@/panels/cve-feed-panel';
-import { refreshGatraData } from '@/gatra/connector';
+import { refreshGatraData, ingestConflictCorrelations } from '@/gatra/connector';
 import type { SearchResult } from '@/components/SearchModal';
 import { collectStoryData } from '@/services/story-data';
 import { renderStoryToCanvas } from '@/services/story-renderer';
@@ -3887,12 +3887,17 @@ export class App {
     })();
     tasks.push(protestsTask.then(() => undefined));
 
-    // Fetch armed conflict events (battles, explosions, violence) for CII
+    // Fetch armed conflict events (battles, explosions, violence) for CII + GATRA correlation
     tasks.push((async () => {
       try {
         const conflictData = await fetchConflictEvents();
         ingestConflictsForCII(conflictData.events);
         if (conflictData.count > 0) dataFreshness.recordUpdate('acled_conflict', conflictData.count);
+
+        // Feed ACLED conflicts into GATRA correlation engine (TAA)
+        ingestConflictCorrelations(conflictData.events);
+        const gatraPanel = this.panels['gatra-soc'] as GatraSOCDashboardPanel | undefined;
+        gatraPanel?.refreshCorrelations();
       } catch (error) {
         console.error('[Intelligence] Conflict events fetch failed:', error);
         dataFreshness.recordError('acled_conflict', String(error));
@@ -4779,6 +4784,16 @@ export class App {
 
       // IoC Lookup feed (5 min refresh, cyber variant only)
       this.scheduleRefresh('ioc-lookup', () => this.loadIoCLookupFeed(), 5 * 60 * 1000);
+
+      // ACLED→GATRA correlation (10 min TTL)
+      this.scheduleRefresh('gatra-acled-correlation', async () => {
+        try {
+          const conflictData = await fetchConflictEvents();
+          ingestConflictCorrelations(conflictData.events);
+          const gatraPanel = this.panels['gatra-soc'] as GatraSOCDashboardPanel | undefined;
+          gatraPanel?.refreshCorrelations();
+        } catch { /* handled by intelligence cycle fallback */ }
+      }, 10 * 60 * 1000);
     }
   }
 }

@@ -14,7 +14,7 @@
 
 import { Panel } from '@/components/Panel';
 import { escapeHtml } from '@/utils/sanitize';
-import { refreshGatraData, getGatraSource } from '@/gatra/connector';
+import { refreshGatraData, getGatraSource, getGatraSnapshot } from '@/gatra/connector';
 import type {
   GatraAlert,
   GatraAgentStatus,
@@ -173,6 +173,15 @@ export class GatraSOCDashboardPanel extends Panel {
   /** Expose alerts for the map layer. */
   public getAlerts(): GatraAlert[] {
     return this.alerts;
+  }
+
+  /** Re-read correlations from the connector (called after ACLED ingestion). */
+  public refreshCorrelations(): void {
+    const snap = getGatraSnapshot();
+    if (snap) {
+      this.correlations = snap.correlations;
+      this.render();
+    }
   }
 
   // ── Rendering ─────────────────────────────────────────────────────
