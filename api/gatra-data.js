@@ -300,39 +300,111 @@ export default async function handler(req) {
 
   try {
     const sa = JSON.parse(saKeyJson);
-    const projectId = sa.project_id || 'gatra-prd-c335';
+    const saProject = sa.project_id || 'chronicle-dev-2be9';
     const token = await getAccessToken(sa);
 
-    // Main query: predictions joined with activity logs and feedback
-    const sql = `
-      SELECT
-        q.alarm_key,
-        q.prob_y1,
-        CAST(q.scored_at AS STRING) AS scored_at,
-        q.rk,
-        CAST(a.event_timestamp AS STRING) AS event_timestamp,
-        IFNULL(a.src_ip, '') AS src_ip,
-        IFNULL(a.dst_ip, '') AS dst_ip,
-        IFNULL(CAST(a.port AS STRING), '') AS port,
-        IFNULL(a.protocol, '') AS protocol,
-        IFNULL(a.action, '') AS action,
-        IFNULL(a.page, '') AS page,
-        IFNULL(a.details, '') AS details,
-        IFNULL(CAST(a.bytes_sent AS STRING), '0') AS bytes_sent,
-        IFNULL(CAST(a.bytes_received AS STRING), '0') AS bytes_received,
-        IFNULL(f.label, '') AS label,
-        IFNULL(CAST(f.severity AS STRING), '0') AS label_severity
-      FROM \`${projectId}.gatra_database.ada_predictions_v4_prod_queue\` q
-      LEFT JOIN \`${projectId}.gatra_database.activity_logs\` a
-        ON q.alarm_key = a.alarm_id OR q.alarm_key = a.row_key
-      LEFT JOIN \`${projectId}.gatra_database.ada_feedback\` f
-        ON q.alarm_key = f.alarm_id OR q.alarm_key = f.row_key
-      WHERE q.snapshot_dt >= DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY)
-      ORDER BY q.prob_y1 DESC
-      LIMIT 50
-    `;
+    // Try multiple query strategies — production tables may be in a different project
+    const PROD_PROJECT = 'gatra-prd-c335';
+    const DATASET = 'gatra_database';
 
-    const rows = await runQuery(token, projectId, sql);
+    const strategies = [
+      {
+        name: 'prod_queue',
+        project: PROD_PROJECT,
+        sql: `
+          SELECT
+            q.alarm_key, q.prob_y1, CAST(q.scored_at AS STRING) AS scored_at, q.rk,
+            CAST(a.event_timestamp AS STRING) AS event_timestamp,
+            IFNULL(a.src_ip, '') AS src_ip, IFNULL(a.dst_ip, '') AS dst_ip,
+            IFNULL(CAST(a.port AS STRING), '') AS port, IFNULL(a.protocol, '') AS protocol,
+            IFNULL(a.action, '') AS action, IFNULL(a.page, '') AS page,
+            IFNULL(a.details, '') AS details,
+            IFNULL(CAST(a.bytes_sent AS STRING), '0') AS bytes_sent,
+            IFNULL(CAST(a.bytes_received AS STRING), '0') AS bytes_received,
+            IFNULL(f.label, '') AS label, IFNULL(CAST(f.severity AS STRING), '0') AS label_severity
+          FROM \`${PROD_PROJECT}.${DATASET}.ada_predictions_v4_prod_queue\` q
+          LEFT JOIN \`${PROD_PROJECT}.${DATASET}.activity_logs\` a
+            ON q.alarm_key = a.alarm_id OR q.alarm_key = a.row_key
+          LEFT JOIN \`${PROD_PROJECT}.${DATASET}.ada_feedback\` f
+            ON q.alarm_key = f.alarm_id OR q.alarm_key = f.row_key
+          WHERE q.snapshot_dt >= DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY)
+          ORDER BY q.prob_y1 DESC LIMIT 50`,
+      },
+      {
+        name: 'test_scored',
+        project: PROD_PROJECT,
+        sql: `
+          SELECT
+            q.alarm_key, q.prob_y1, CAST(q.scored_at AS STRING) AS scored_at, CAST(0 AS INT64) AS rk,
+            CAST(a.event_timestamp AS STRING) AS event_timestamp,
+            IFNULL(a.src_ip, '') AS src_ip, IFNULL(a.dst_ip, '') AS dst_ip,
+            IFNULL(CAST(a.port AS STRING), '') AS port, IFNULL(a.protocol, '') AS protocol,
+            IFNULL(a.action, '') AS action, IFNULL(a.page, '') AS page,
+            IFNULL(a.details, '') AS details,
+            IFNULL(CAST(a.bytes_sent AS STRING), '0') AS bytes_sent,
+            IFNULL(CAST(a.bytes_received AS STRING), '0') AS bytes_received,
+            IFNULL(f.label, '') AS label, IFNULL(CAST(f.severity AS STRING), '0') AS label_severity
+          FROM \`${PROD_PROJECT}.${DATASET}.ada_predictions_v4_test_scored\` q
+          LEFT JOIN \`${PROD_PROJECT}.${DATASET}.activity_logs\` a
+            ON q.alarm_key = a.alarm_id OR q.alarm_key = a.row_key
+          LEFT JOIN \`${PROD_PROJECT}.${DATASET}.ada_feedback\` f
+            ON q.alarm_key = f.alarm_id OR q.alarm_key = f.row_key
+          ORDER BY q.prob_y1 DESC LIMIT 50`,
+      },
+      {
+        name: 'dev_activity',
+        project: saProject,
+        sql: `
+          SELECT
+            IFNULL(a.alarm_id, a.row_key) AS alarm_key,
+            CAST(0.5 AS FLOAT64) AS prob_y1,
+            CAST(a.event_timestamp AS STRING) AS scored_at,
+            CAST(0 AS INT64) AS rk,
+            CAST(a.event_timestamp AS STRING) AS event_timestamp,
+            IFNULL(a.src_ip, '') AS src_ip, IFNULL(a.dst_ip, '') AS dst_ip,
+            IFNULL(CAST(a.port AS STRING), '') AS port, IFNULL(a.protocol, '') AS protocol,
+            IFNULL(a.action, '') AS action, IFNULL(a.page, '') AS page,
+            IFNULL(a.details, '') AS details,
+            IFNULL(CAST(a.bytes_sent AS STRING), '0') AS bytes_sent,
+            IFNULL(CAST(a.bytes_received AS STRING), '0') AS bytes_received,
+            '' AS label, '0' AS label_severity
+          FROM \`${saProject}.${DATASET}.activity_logs\` a
+          ORDER BY a.event_timestamp DESC LIMIT 50`,
+      },
+      {
+        name: 'dev_siem',
+        project: saProject,
+        sql: `
+          SELECT
+            IFNULL(alarm_id, row_key) AS alarm_key,
+            CAST(0.5 AS FLOAT64) AS prob_y1,
+            CAST(event_timestamp AS STRING) AS scored_at,
+            CAST(0 AS INT64) AS rk,
+            CAST(event_timestamp AS STRING) AS event_timestamp,
+            IFNULL(src_ip, '') AS src_ip, IFNULL(dst_ip, '') AS dst_ip,
+            IFNULL(CAST(port AS STRING), '') AS port, IFNULL(protocol, '') AS protocol,
+            IFNULL(action, '') AS action, IFNULL(page, '') AS page,
+            IFNULL(details, '') AS details,
+            IFNULL(CAST(bytes_sent AS STRING), '0') AS bytes_sent,
+            IFNULL(CAST(bytes_received AS STRING), '0') AS bytes_received,
+            '' AS label, '0' AS label_severity
+          FROM \`${saProject}.${DATASET}.siem_events\`
+          ORDER BY event_timestamp DESC LIMIT 50`,
+      },
+    ];
+
+    let rows = [];
+    let usedStrategy = 'none';
+
+    for (const s of strategies) {
+      try {
+        rows = await runQuery(token, s.project, s.sql);
+        usedStrategy = s.name;
+        if (rows.length > 0) break;
+      } catch (e) {
+        console.log(`[gatra-data] Strategy "${s.name}" failed: ${String(e).slice(0, 100)}`);
+      }
+    }
 
     const alerts = rows.map((r, i) => rowToAlert(r.f, i));
     alerts.sort((a, b) => {
@@ -342,6 +414,7 @@ export default async function handler(req) {
     });
 
     const snapshot = buildSnapshot(alerts);
+    snapshot.strategy = usedStrategy;
 
     return new Response(JSON.stringify(snapshot), {
       status: 200,
