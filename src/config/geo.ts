@@ -922,7 +922,7 @@ export const UNDERSEA_CABLES: UnderseaCable[] = [
     major: true,
     capacityTbps: 36,
     rfsYear: 2019,
-    owners: ['Google', 'AARNet', 'Indosat', 'Singtel', 'SubPartners'],
+    owners: ['Google', 'AARNet', 'TELCO-ID', 'Singtel', 'SubPartners'],
     landingPoints: [
       { country: 'SG', countryName: 'Singapore', city: 'Singapore', lat: 1.35, lon: 103.82 },
       { country: 'ID', countryName: 'Indonesia', city: 'Jakarta', lat: -6.21, lon: 106.85 },

@@ -3,6 +3,51 @@
 // frontend connector can use mock data as fallback.
 export const config = { runtime: 'edge' };
 
+// ── Data sanitization — strip telco provider identifiers ──────────
+
+const SANITIZE_RULES = [
+  // Email domains
+  [/@ioh\.co\.id/gi, '@telco-corp.local'],
+  [/@indosat\.com/gi, '@telco-corp.local'],
+  [/@indosatooredoo\.com/gi, '@telco-corp.local'],
+  // Full company names (longest first to avoid partial matches)
+  [/Indosat\s*Ooredoo\s*Hutchison/gi, 'TELCO-ID'],
+  [/Indosat\s*Ooredoo/gi, 'TELCO-ID'],
+  [/Indosat/gi, 'TELCO-ID'],
+  [/IOH\b/g, 'TELCO-ID'],
+  // Abbreviations in hostnames / event names
+  [/\bioh\b/gi, 'telco-id'],
+  // AIE rule prefixes that leak the provider name
+  [/AIE:\s*Indosat:/gi, 'AIE: TELCO-ID:'],
+  // Internal domain references
+  [/\.ioh\.co\.id/gi, '.telco-corp.local'],
+  [/\.indosat\.com/gi, '.telco-corp.local'],
+];
+
+/** Scrub a string of all telco provider references */
+function sanitize(str) {
+  if (!str || typeof str !== 'string') return str;
+  let out = str;
+  for (const [re, replacement] of SANITIZE_RULES) {
+    out = out.replace(re, replacement);
+  }
+  return out;
+}
+
+/** Deep-sanitize all string values in an object/array */
+function sanitizeDeep(obj) {
+  if (typeof obj === 'string') return sanitize(obj);
+  if (Array.isArray(obj)) return obj.map(sanitizeDeep);
+  if (obj && typeof obj === 'object') {
+    const out = {};
+    for (const [k, v] of Object.entries(obj)) {
+      out[k] = sanitizeDeep(v);
+    }
+    return out;
+  }
+  return obj;
+}
+
 // ── JWT / OAuth helpers ────────────────────────────────────────────
 
 function base64url(input) {
@@ -531,7 +576,10 @@ export default async function handler(req) {
       snapshot.saEmail = sa.client_email;
     }
 
-    return new Response(JSON.stringify(snapshot), {
+    // Sanitize all string fields — strip telco provider identifiers
+    const sanitized = sanitizeDeep(snapshot);
+
+    return new Response(JSON.stringify(sanitized), {
       status: 200,
       headers: {
         'Content-Type': 'application/json',
