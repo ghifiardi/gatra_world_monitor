@@ -66,6 +66,7 @@
     "filterSources": "Filter sources...",
     "sourcesEnabled": "{{enabled}}/{{total}} enabled",
     "finance": "FINANCE",
+    "cyber": "CYBER",
     "toggleTheme": "Toggle dark/light mode",
     "panelDisplayCaption": "Choose which panels to show on the dashboard"
   },
@@ -129,7 +130,8 @@
     "techReadiness": "Tech Readiness Index",
     "gccInvestments": "GCC Investments",
     "geoHubs": "Geopolitical Hubs",
-    "liveWebcams": "Live Webcams"
+    "liveWebcams": "Live Webcams",
+    "gatraSoc": "GATRA SOC"
   },
   "modals": {
     "search": {
@@ -706,7 +708,8 @@
         "financialCenters": "Financial Centers",
         "centralBanks": "Central Banks",
         "commodityHubs": "Commodity Hubs",
-        "gulfInvestments": "GCC Investments"
+        "gulfInvestments": "GCC Investments",
+        "gatraAlerts": "GATRA Alerts"
       },
       "tooltip": {
         "earthquake": "Earthquake",

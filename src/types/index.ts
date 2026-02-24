@@ -1361,3 +1361,92 @@ export interface GatraConnectorSnapshot {
   correlations: GatraCorrelation[];
   lastRefresh: Date;
 }
+
+// ============================================
+// IoC LOOKUP TYPES
+// ============================================
+
+export type IoCType = 'ip' | 'domain' | 'hash' | 'url' | 'unknown';
+
+export interface IoCLookupResult {
+  query: string;
+  type: IoCType;
+  threatLevel: 'malicious' | 'suspicious' | 'clean' | 'unknown';
+  confidence: number;        // 0-100
+  sources: IoCSource[];
+  tags: string[];
+  malwareFamily: string | null;
+  firstSeen: Date | null;
+  lastSeen: Date | null;
+  relatedIocs: string[];
+}
+
+export interface IoCSource {
+  name: string;              // e.g. "ThreatFox", "URLhaus"
+  verdict: string;
+  details: string;
+  url: string | null;        // link to source report
+}
+
+export interface ThreatFoxEntry {
+  id: string;
+  ioc: string;
+  iocType: string;
+  threatType: string;
+  malware: string;
+  confidence: number;
+  firstSeen: Date;
+  tags: string[];
+  reporter: string;
+}
+
+// ============================================
+// CVE / VULNERABILITY FEED TYPES
+// ============================================
+
+export type CVESeverity = 'CRITICAL' | 'HIGH' | 'MEDIUM' | 'LOW' | 'NONE';
+
+export interface CVEItem {
+  id: string;              // e.g. "CVE-2024-3094"
+  description: string;
+  cvssScore: number | null;
+  cvssVector: string | null;
+  severity: CVESeverity;
+  publishedDate: Date;
+  lastModified: Date;
+  exploitedInWild: boolean; // true if in CISA KEV
+  affectedProducts: string[];
+  references: string[];
+  epssScore: number | null; // from FIRST EPSS if available
+  cweId: string | null;
+}
+
+// ============================================
+// RANSOMWARE TRACKER TYPES
+// ============================================
+
+export interface RansomwareVictim {
+  id: string;
+  victimName: string;
+  group: string;
+  discoveredDate: Date;
+  country: string | null;
+  sector: string | null;
+  website: string | null;
+  description: string | null;
+}
+
+export interface RansomwareGroup {
+  name: string;
+  description: string | null;
+  firstSeen: Date | null;
+  victimCount: number;
+  locations: string[];
+}
+
+export interface RansomwareStats {
+  totalVictims30d: number;
+  topGroups: Array<{ name: string; count: number }>;
+  topCountries: Array<{ name: string; count: number }>;
+  topSectors: Array<{ name: string; count: number }>;
+}

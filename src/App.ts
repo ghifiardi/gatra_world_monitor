@@ -83,6 +83,9 @@ import {
   LanguageSelector,
 } from '@/components';
 import { GatraSOCDashboardPanel } from '@/panels/gatra-soc-panel';
+import { IoCLookupPanel } from '@/panels/ioc-lookup-panel';
+import { RansomwareTrackerPanel } from '@/panels/ransomware-tracker-panel';
+import { CVEFeedPanel } from '@/panels/cve-feed-panel';
 import { refreshGatraData } from '@/gatra/connector';
 import type { SearchResult } from '@/components/SearchModal';
 import { collectStoryData } from '@/services/story-data';
@@ -2392,6 +2395,15 @@ export class App {
     if (SITE_VARIANT === 'cyber') {
       const gatraPanel = new GatraSOCDashboardPanel();
       this.panels['gatra-soc'] = gatraPanel;
+
+      const cveFeedPanel = new CVEFeedPanel();
+      this.panels['cve-feed'] = cveFeedPanel;
+
+      const ransomwarePanel = new RansomwareTrackerPanel();
+      this.panels['ransomware-tracker'] = ransomwarePanel;
+
+      const iocPanel = new IoCLookupPanel();
+      this.panels['ioc-lookup'] = iocPanel;
     }
 
     // AI Insights Panel (desktop only - hides itself on mobile)
@@ -3196,6 +3208,21 @@ export class App {
     // GATRA SOC data (cyber variant)
     if (SITE_VARIANT === 'cyber' && this.mapLayers.gatraAlerts) {
       tasks.push({ name: 'gatra', task: runGuarded('gatra', () => this.loadGatraData()) });
+    }
+
+    // CVE Feed (cyber variant)
+    if (SITE_VARIANT === 'cyber') {
+      tasks.push({ name: 'cve-feed', task: runGuarded('cve-feed', () => this.loadCVEFeed()) });
+    }
+
+    // Ransomware Tracker (cyber variant)
+    if (SITE_VARIANT === 'cyber') {
+      tasks.push({ name: 'ransomware-tracker', task: runGuarded('ransomware-tracker', () => this.loadRansomwareData()) });
+    }
+
+    // IoC Lookup feed (cyber variant)
+    if (SITE_VARIANT === 'cyber') {
+      tasks.push({ name: 'ioc-lookup', task: runGuarded('ioc-lookup', () => this.loadIoCLookupFeed()) });
     }
 
     // Use allSettled to ensure all tasks complete and search index always updates
@@ -4129,6 +4156,33 @@ export class App {
     }
   }
 
+  private async loadCVEFeed(): Promise<void> {
+    try {
+      const cvePanel = this.panels['cve-feed'] as CVEFeedPanel | undefined;
+      await cvePanel?.refresh();
+    } catch (error) {
+      console.error('[App] CVE feed load failed:', error);
+    }
+  }
+
+  private async loadRansomwareData(): Promise<void> {
+    try {
+      const ransomwarePanel = this.panels['ransomware-tracker'] as RansomwareTrackerPanel | undefined;
+      await ransomwarePanel?.refresh();
+    } catch (error) {
+      console.error('[App] Ransomware tracker load failed:', error);
+    }
+  }
+
+  private async loadIoCLookupFeed(): Promise<void> {
+    try {
+      const iocPanel = this.panels['ioc-lookup'] as IoCLookupPanel | undefined;
+      await iocPanel?.refresh();
+    } catch (error) {
+      console.error('[App] IoC Lookup feed load failed:', error);
+    }
+  }
+
   private async loadAisSignals(): Promise<void> {
     try {
       const { disruptions, density } = await fetchAisSignals();
@@ -4713,6 +4767,15 @@ export class App {
     // GATRA SOC data (60s refresh, cyber variant only)
     if (SITE_VARIANT === 'cyber') {
       this.scheduleRefresh('gatra', () => this.loadGatraData(), 60 * 1000, () => this.mapLayers.gatraAlerts);
+
+      // CVE Feed (10 min refresh, cyber variant only)
+      this.scheduleRefresh('cve-feed', () => this.loadCVEFeed(), 10 * 60 * 1000);
+
+      // Ransomware Tracker (5 min refresh, cyber variant only)
+      this.scheduleRefresh('ransomware-tracker', () => this.loadRansomwareData(), 5 * 60 * 1000);
+
+      // IoC Lookup feed (5 min refresh, cyber variant only)
+      this.scheduleRefresh('ioc-lookup', () => this.loadIoCLookupFeed(), 5 * 60 * 1000);
     }
   }
 }

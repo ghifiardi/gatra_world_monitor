@@ -391,6 +391,8 @@ const CYBER_PANELS: Record<string, PanelConfig> = {
   policy: { name: 'Cyber Policy', enabled: true, priority: 2 },
   aiSecurity: { name: 'AI & Security', enabled: true, priority: 2 },
   'gatra-soc': { name: 'GATRA SOC', enabled: true, priority: 1 },
+  'cve-feed': { name: 'CVE Feed', enabled: true, priority: 1 },
+  'ransomware-tracker': { name: 'Ransomware Tracker', enabled: true, priority: 1 },
   monitors: { name: 'My Monitors', enabled: true, priority: 2 },
 };
 
