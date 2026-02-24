@@ -68,8 +68,8 @@ async function runQuery(token, projectId, sql) {
       Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json',
     },
-    body: JSON.stringify({ query: sql, useLegacySql: false, maxResults: 200, timeoutMs: 20000 }),
-    signal: AbortSignal.timeout(25000),
+    body: JSON.stringify({ query: sql, useLegacySql: false, maxResults: 200, timeoutMs: 55000 }),
+    signal: AbortSignal.timeout(58000),
   });
   if (!res.ok) {
     const err = await res.text();
@@ -395,6 +395,12 @@ export default async function handler(req) {
         project: saProject,
         transform: siemRowToAlert,
         sql: `
+          WITH recent AS (
+            SELECT alarmId, events, ingestion_time
+            FROM \`${saProject}.${DATASET}.siem_events\`
+            ORDER BY ingestion_time DESC
+            LIMIT 80
+          )
           SELECT
             s.alarmId,
             IFNULL(JSON_VALUE(e, '$.commonEventName'), '') AS eventName,
@@ -415,9 +421,9 @@ export default async function handler(req) {
             IFNULL(JSON_VALUE(e, '$.originPort'), '-1') AS originPort,
             IFNULL(JSON_VALUE(e, '$.protocolName'), '') AS protocol,
             CAST(s.ingestion_time AS STRING) AS ingestionTime
-          FROM \`${saProject}.${DATASET}.siem_events\` s,
+          FROM recent s,
           UNNEST(JSON_QUERY_ARRAY(s.events)) AS e
-          ORDER BY s.ingestion_time DESC, SAFE_CAST(JSON_VALUE(e, '$.priority') AS INT64) DESC
+          ORDER BY SAFE_CAST(JSON_VALUE(e, '$.priority') AS INT64) DESC
           LIMIT 60`,
       },
       // Strategy 2: Activity logs from dev project — Streamlit app usage
@@ -459,32 +465,45 @@ export default async function handler(req) {
       },
     ];
 
-    let rows = [];
-    let usedStrategy = 'none';
-    let transformFn = siemRowToAlert;
+    let allAlerts = [];
+    let usedStrategies = [];
     const strategyErrors = [];
 
+    // Try all strategies and merge results (siem + activity = richer view)
     for (const s of strategies) {
       try {
-        rows = await runQuery(token, s.project, s.sql);
-        usedStrategy = s.name;
-        transformFn = s.transform;
-        if (rows.length > 0) break;
-        strategyErrors.push({ name: s.name, result: 'empty (0 rows)' });
+        const rows = await runQuery(token, s.project, s.sql);
+        if (rows.length > 0) {
+          const transformed = rows.map((r, i) => s.transform(r.f, i));
+          allAlerts.push(...transformed);
+          usedStrategies.push(`${s.name}(${rows.length})`);
+        } else {
+          strategyErrors.push({ name: s.name, result: 'empty (0 rows)' });
+        }
       } catch (e) {
         strategyErrors.push({ name: s.name, error: String(e).slice(0, 200) });
       }
     }
 
-    const alerts = rows.map((r, i) => transformFn(r.f, i));
-    alerts.sort((a, b) => {
+    // Sort by timestamp, newest first
+    allAlerts.sort((a, b) => {
       const ta = new Date(a.timestamp).getTime() || 0;
       const tb = new Date(b.timestamp).getTime() || 0;
       return tb - ta;
     });
 
+    // Deduplicate by id, keep first (newest)
+    const seen = new Set();
+    const alerts = [];
+    for (const a of allAlerts) {
+      if (!seen.has(a.id)) {
+        seen.add(a.id);
+        alerts.push(a);
+      }
+    }
+
     const snapshot = buildSnapshot(alerts);
-    snapshot.strategy = usedStrategy;
+    snapshot.strategy = usedStrategies.join('+') || 'none';
     snapshot.strategyErrors = strategyErrors;
     snapshot.saProject = saProject;
     snapshot.saEmail = sa.client_email;
