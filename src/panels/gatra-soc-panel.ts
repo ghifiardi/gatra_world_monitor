@@ -14,7 +14,7 @@
 
 import { Panel } from '@/components/Panel';
 import { escapeHtml } from '@/utils/sanitize';
-import { refreshGatraData } from '@/gatra/connector';
+import { refreshGatraData, getGatraSource } from '@/gatra/connector';
 import type {
   GatraAlert,
   GatraAgentStatus,
@@ -94,7 +94,8 @@ export class GatraSOCDashboardPanel extends Panel {
       this.correlations = snap.correlations;
 
       this.setCount(snap.alerts.length);
-      this.setDataBadge('live', `${snap.alerts.length} alerts`);
+      const source = getGatraSource();
+      this.setDataBadge('live', `${snap.alerts.length} alerts · ${source === 'bigquery' ? 'BQ' : 'mock'}`);
       this.render();
     } catch (err) {
       console.error('[GatraSOCDashboardPanel] refresh error:', err);

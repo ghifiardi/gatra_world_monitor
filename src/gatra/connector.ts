@@ -1,17 +1,12 @@
 /**
  * GATRA SOC Connector — unified integration layer
  *
- * Exposes GATRA's 5-agent pipeline data via the same panel system
- * World Monitor uses.  Current implementation uses mock data from
- * `@/services/gatra`; the mock calls will be replaced by real GATRA
- * API feeds via Pub/Sub once the production connector is ready.
+ * Data flow:
+ *   1. Try /api/gatra-data  (real BigQuery — production predictions + activity logs)
+ *   2. Fall back to mock data from @/services/gatra if the API is unavailable
  *
- * Data exposed:
- *   ADA  alerts     — anomaly detections with MITRE ATT&CK mapping
- *   TAA  analyses   — threat investigation with actor/campaign/kill-chain
- *   CRA  actions    — automated containment responses with status
- *   Agent health    — ADA/TAA/CRA/CLA/RVA heartbeat & state
- *   Correlations    — links between World Monitor events and GATRA alerts
+ * Consumers (panels, layers) always get the same GatraConnectorSnapshot shape
+ * regardless of whether the data is live or mock.
  */
 
 import {
@@ -37,12 +32,96 @@ import type {
 
 let _snapshot: GatraConnectorSnapshot | null = null;
 let _refreshing = false;
+let _source: 'bigquery' | 'mock' = 'mock';
 const _listeners: Set<(snap: GatraConnectorSnapshot) => void> = new Set();
+
+// ── BigQuery API fetch ──────────────────────────────────────────────
+
+/** Attempt to load real GATRA data from the BigQuery API route. */
+async function fetchFromBigQuery(): Promise<GatraConnectorSnapshot | null> {
+  try {
+    const res = await fetch('/api/gatra-data', { signal: AbortSignal.timeout(30000) });
+    if (!res.ok) return null;
+
+    const data = await res.json() as {
+      alerts: Array<Omit<GatraAlert, 'timestamp'> & { timestamp: string }>;
+      agents: Array<Omit<GatraAgentStatus, 'lastHeartbeat'> & { lastHeartbeat: string }>;
+      summary: GatraIncidentSummary;
+      craActions: Array<Omit<GatraCRAAction, 'timestamp'> & { timestamp: string }>;
+      taaAnalyses: Array<Omit<GatraTAAAnalysis, 'timestamp'> & { timestamp: string }>;
+      correlations: Array<Omit<GatraCorrelation, 'timestamp'> & { timestamp: string }>;
+      source?: string;
+      error?: string;
+    };
+
+    if (data.error) {
+      console.warn('[GatraConnector] BQ API returned error:', data.error);
+      return null;
+    }
+
+    // Parse ISO date strings back to Date objects
+    const alerts: GatraAlert[] = (data.alerts ?? []).map(a => ({
+      ...a,
+      timestamp: new Date(a.timestamp),
+    }));
+
+    const agents: GatraAgentStatus[] = (data.agents ?? []).map(a => ({
+      ...a,
+      lastHeartbeat: new Date(a.lastHeartbeat),
+    }));
+
+    const craActions: GatraCRAAction[] = (data.craActions ?? []).map(a => ({
+      ...a,
+      timestamp: new Date(a.timestamp),
+    }));
+
+    const taaAnalyses: GatraTAAAnalysis[] = (data.taaAnalyses ?? []).map(a => ({
+      ...a,
+      timestamp: new Date(a.timestamp),
+    }));
+
+    const correlations: GatraCorrelation[] = (data.correlations ?? []).map(c => ({
+      ...c,
+      timestamp: new Date(c.timestamp),
+    }));
+
+    return {
+      alerts,
+      agents,
+      summary: data.summary,
+      craActions,
+      taaAnalyses,
+      correlations,
+      lastRefresh: new Date(),
+    };
+  } catch (err) {
+    console.warn('[GatraConnector] BQ API unreachable, will use mock:', err);
+    return null;
+  }
+}
+
+// ── Mock data fetch (fallback) ──────────────────────────────────────
+
+async function fetchFromMock(): Promise<GatraConnectorSnapshot> {
+  const [alerts, agents, summary, craActions] = await Promise.all([
+    fetchGatraAlerts(),
+    fetchGatraAgentStatus(),
+    fetchGatraIncidentSummary(),
+    fetchGatraCRAActions(),
+  ]);
+
+  const [taaAnalyses, correlations] = await Promise.all([
+    fetchGatraTAAAnalyses(alerts),
+    fetchGatraCorrelations(alerts),
+  ]);
+
+  return { alerts, agents, summary, craActions, taaAnalyses, correlations, lastRefresh: new Date() };
+}
 
 // ── Public API ──────────────────────────────────────────────────────
 
 /**
- * Fetch all GATRA data sources in parallel and cache the result.
+ * Fetch all GATRA data — tries BigQuery first, falls back to mock.
  * Returns a unified snapshot that panels, layers, and other consumers
  * can read without issuing their own requests.
  */
@@ -51,28 +130,18 @@ export async function refreshGatraData(): Promise<GatraConnectorSnapshot> {
   _refreshing = true;
 
   try {
-    const [alerts, agents, summary, craActions] = await Promise.all([
-      fetchGatraAlerts(),
-      fetchGatraAgentStatus(),
-      fetchGatraIncidentSummary(),
-      fetchGatraCRAActions(),
-    ]);
+    // Try real BigQuery data first
+    const bqSnap = await fetchFromBigQuery();
 
-    // TAA and correlations depend on alerts
-    const [taaAnalyses, correlations] = await Promise.all([
-      fetchGatraTAAAnalyses(alerts),
-      fetchGatraCorrelations(alerts),
-    ]);
-
-    _snapshot = {
-      alerts,
-      agents,
-      summary,
-      craActions,
-      taaAnalyses,
-      correlations,
-      lastRefresh: new Date(),
-    };
+    if (bqSnap && bqSnap.alerts.length > 0) {
+      _snapshot = bqSnap;
+      _source = 'bigquery';
+      console.log(`[GatraConnector] Live data: ${bqSnap.alerts.length} alerts from BigQuery`);
+    } else {
+      _snapshot = await fetchFromMock();
+      _source = 'mock';
+      console.log(`[GatraConnector] Using mock data: ${_snapshot.alerts.length} alerts`);
+    }
 
     // Notify subscribers
     for (const fn of _listeners) {
@@ -92,6 +161,11 @@ export async function refreshGatraData(): Promise<GatraConnectorSnapshot> {
 /** Return the last cached snapshot (may be null before first refresh). */
 export function getGatraSnapshot(): GatraConnectorSnapshot | null {
   return _snapshot;
+}
+
+/** Whether the last refresh used real BigQuery data or mock. */
+export function getGatraSource(): 'bigquery' | 'mock' {
+  return _source;
 }
 
 /** Subscribe to snapshot updates. Returns an unsubscribe function. */
