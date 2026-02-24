@@ -166,6 +166,26 @@ function probToSeverity(p) {
   return 'low';
 }
 
+/** Derive MITRE technique from event name keywords */
+function eventNameToMitre(name) {
+  if (!name) return null;
+  const n = name.toLowerCase();
+  if (n.includes('c&c') || n.includes('c2') || n.includes('command and control')) return { id: 'T1071', name: 'Application Layer Protocol (C2)' };
+  if (n.includes('gallium') || n.includes('apt')) return { id: 'T1190', name: 'Exploit Public-Facing Application' };
+  if (n.includes('malware')) return { id: 'T1204', name: 'User Execution (Malware)' };
+  if (n.includes('brute') || n.includes('login fail')) return { id: 'T1110', name: 'Brute Force' };
+  if (n.includes('heartbeat') || n.includes('agent')) return { id: 'T1562', name: 'Impair Defenses' };
+  if (n.includes('exfil') || n.includes('data transfer')) return { id: 'T1048', name: 'Exfiltration Over Alternative Protocol' };
+  if (n.includes('lateral') || n.includes('remote')) return { id: 'T1021', name: 'Remote Services' };
+  if (n.includes('phish')) return { id: 'T1566', name: 'Phishing' };
+  if (n.includes('credential') || n.includes('password')) return { id: 'T1110', name: 'Brute Force' };
+  if (n.includes('scan') || n.includes('recon')) return { id: 'T1046', name: 'Network Service Discovery' };
+  if (n.includes('privilege') || n.includes('escalat')) return { id: 'T1068', name: 'Exploitation for Privilege Escalation' };
+  if (n.includes('firewall') || n.includes('rule')) return { id: 'T1562.004', name: 'Disable or Modify System Firewall' };
+  if (n.includes('dns')) return { id: 'T1071.004', name: 'DNS' };
+  return null;
+}
+
 /** Transform a siem_events row (alarmId, events JSON, priority, etc.) */
 function siemRowToAlert(fields, idx) {
   const v = (i) => fields[i]?.v ?? '';
@@ -189,8 +209,8 @@ function siemRowToAlert(fields, idx) {
   const protocol      = v(17);
   const ingestionTime = v(18);
 
-  // MITRE mapping from classification
-  const mitre = CLASSIFICATION_MITRE[classification] || CLASSIFICATION_MITRE[classType] || MITRE_DEFAULT;
+  // MITRE mapping — try event name keywords first, then classification
+  const mitre = eventNameToMitre(eventName) || CLASSIFICATION_MITRE[classification] || CLASSIFICATION_MITRE[classType] || MITRE_DEFAULT;
 
   // Severity from priority field
   const sev = priorityToSeverity(priority);
@@ -504,9 +524,12 @@ export default async function handler(req) {
 
     const snapshot = buildSnapshot(alerts);
     snapshot.strategy = usedStrategies.join('+') || 'none';
-    snapshot.strategyErrors = strategyErrors;
-    snapshot.saProject = saProject;
-    snapshot.saEmail = sa.client_email;
+    // Include debug info only when ?debug=1 is passed
+    if (new URL(req.url).searchParams.has('debug')) {
+      snapshot.strategyErrors = strategyErrors;
+      snapshot.saProject = saProject;
+      snapshot.saEmail = sa.client_email;
+    }
 
     return new Response(JSON.stringify(snapshot), {
       status: 200,
