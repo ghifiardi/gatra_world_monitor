@@ -395,14 +395,16 @@ export default async function handler(req) {
 
     let rows = [];
     let usedStrategy = 'none';
+    const strategyErrors = [];
 
     for (const s of strategies) {
       try {
         rows = await runQuery(token, s.project, s.sql);
         usedStrategy = s.name;
         if (rows.length > 0) break;
+        strategyErrors.push({ name: s.name, result: 'empty (0 rows)' });
       } catch (e) {
-        console.log(`[gatra-data] Strategy "${s.name}" failed: ${String(e).slice(0, 100)}`);
+        strategyErrors.push({ name: s.name, error: String(e).slice(0, 200) });
       }
     }
 
@@ -415,6 +417,9 @@ export default async function handler(req) {
 
     const snapshot = buildSnapshot(alerts);
     snapshot.strategy = usedStrategy;
+    snapshot.strategyErrors = strategyErrors;
+    snapshot.saProject = saProject;
+    snapshot.saEmail = sa.client_email;
 
     return new Response(JSON.stringify(snapshot), {
       status: 200,
