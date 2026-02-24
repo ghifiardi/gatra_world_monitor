@@ -1,67 +1,77 @@
-# World Monitor
+# GATRA x World Monitor
 
-**Real-time global intelligence dashboard** — AI-powered news aggregation, geopolitical monitoring, and infrastructure tracking in a unified situational awareness interface.
+**Autonomous SOC meets global intelligence** — GATRA's AI-driven security operations integrated with World Monitor's real-time geopolitical intelligence platform.
 
-[![GitHub stars](https://img.shields.io/github/stars/koala73/worldmonitor?style=social)](https://github.com/koala73/worldmonitor/stargazers)
-[![GitHub forks](https://img.shields.io/github/forks/koala73/worldmonitor?style=social)](https://github.com/koala73/worldmonitor/network/members)
 [![License: AGPL v3](https://img.shields.io/badge/License-AGPL%20v3-blue.svg)](https://www.gnu.org/licenses/agpl-3.0)
 [![TypeScript](https://img.shields.io/badge/TypeScript-007ACC?style=flat&logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
-[![Last commit](https://img.shields.io/github/last-commit/koala73/worldmonitor)](https://github.com/koala73/worldmonitor/commits/main)
-[![Latest release](https://img.shields.io/github/v/release/koala73/worldmonitor?style=flat)](https://github.com/koala73/worldmonitor/releases/latest)
 
 <p align="center">
-  <a href="https://worldmonitor.app"><img src="https://img.shields.io/badge/Web_App-worldmonitor.app-blue?style=for-the-badge&logo=googlechrome&logoColor=white" alt="Web App"></a>&nbsp;
-  <a href="https://tech.worldmonitor.app"><img src="https://img.shields.io/badge/Tech_Variant-tech.worldmonitor.app-0891b2?style=for-the-badge&logo=googlechrome&logoColor=white" alt="Tech Variant"></a>&nbsp;
-  <a href="https://finance.worldmonitor.app"><img src="https://img.shields.io/badge/Finance_Variant-finance.worldmonitor.app-059669?style=for-the-badge&logo=googlechrome&logoColor=white" alt="Finance Variant"></a>
+  <a href="https://worldmonitor-gatra.vercel.app/"><img src="https://img.shields.io/badge/Live_Demo-GATRA_Cyber-ef4444?style=for-the-badge&logo=shield&logoColor=white" alt="GATRA Cyber"></a>&nbsp;
+  <a href="https://worldmonitor.app"><img src="https://img.shields.io/badge/Upstream-worldmonitor.app-blue?style=for-the-badge&logo=googlechrome&logoColor=white" alt="World Monitor"></a>
 </p>
-
-<p align="center">
-  <a href="https://worldmonitor.app/api/download?platform=windows-exe"><img src="https://img.shields.io/badge/Download-Windows_(.exe)-0078D4?style=for-the-badge&logo=windows&logoColor=white" alt="Download Windows"></a>&nbsp;
-  <a href="https://worldmonitor.app/api/download?platform=macos-arm64"><img src="https://img.shields.io/badge/Download-macOS_Apple_Silicon-000000?style=for-the-badge&logo=apple&logoColor=white" alt="Download macOS ARM"></a>&nbsp;
-  <a href="https://worldmonitor.app/api/download?platform=macos-x64"><img src="https://img.shields.io/badge/Download-macOS_Intel-555555?style=for-the-badge&logo=apple&logoColor=white" alt="Download macOS Intel"></a>&nbsp;
-  <a href="https://worldmonitor.app/api/download?platform=linux-appimage"><img src="https://img.shields.io/badge/Download-Linux_(.AppImage)-FCC624?style=for-the-badge&logo=linux&logoColor=black" alt="Download Linux"></a>
-</p>
-
-<p align="center">
-  <a href="./docs/DOCUMENTATION.md"><strong>Full Documentation</strong></a> &nbsp;·&nbsp;
-  <a href="https://github.com/koala73/worldmonitor/releases/latest"><strong>All Releases</strong></a>
-</p>
-
-![World Monitor Dashboard](new-world-monitor.png)
 
 ---
 
-## Why World Monitor?
+## What Is This?
 
-| Problem                            | Solution                                                                                                   |
-| ---------------------------------- | ---------------------------------------------------------------------------------------------------------- |
-| News scattered across 100+ sources | **Single unified dashboard** with 100+ curated feeds                                                       |
-| No geospatial context for events   | **Interactive map** with 35+ toggleable data layers                                                        |
-| Information overload               | **AI-synthesized briefs** with focal point detection and local LLM support                                 |
-| Crypto/macro signal noise          | **7-signal market radar** with composite BUY/CASH verdict                                                  |
-| Expensive OSINT tools ($$$)        | **100% free & open source**                                                                                |
-| Static news feeds                  | **Real-time updates** with live video streams                                                              |
-| Cloud-dependent AI tools           | **Run AI locally** with Ollama/LM Studio — no API keys, no data leaves your machine                       |
-| Web-only dashboards                | **Native desktop app** (Tauri) for macOS, Windows, and Linux + installable PWA with offline map support    |
-| Flat 2D maps                       | **3D WebGL globe** with deck.gl rendering and 35+ toggleable data layers                                   |
-| Siloed financial data              | **Finance variant** with 92 stock exchanges, 19 financial centers, 13 central banks, and Gulf FDI tracking |
-| Undocumented, fragile APIs         | **Proto-first API contracts** — 17 typed services with auto-generated clients, servers, and OpenAPI docs   |
+This is a fork of [World Monitor](https://github.com/koala73/worldmonitor) extended with GATRA — an AI-driven autonomous Security Operations Center (SOC) built at Indosat Ooredoo Hutchison, protecting 60M+ subscribers across Indonesia.
+
+GATRA adds a fourth variant (🛡️ CYBER) to World Monitor's existing World/Tech/Finance dashboard, transforming it from an OSINT monitoring tool into an autonomous cyber defense command center that correlates geopolitical events with security telemetry in real-time.
+
+---
+
+## GATRA Integration Features
+
+### SOC Command Center (Cyber Variant)
+- **GATRA SOC Alert Panel** — live feed of anomaly detections from five AI agents (ADA, TAA, CRA, CLA, RVA) with severity coloring and MITRE ATT&CK mapping
+- **Agent Health Dashboard** — real-time status of all five GATRA agents with heartbeat monitoring and degradation alerts
+- **Active Incident Timeline** — chronological incident tracking with mean time to detect (MTTD) and mean time to respond (MTTR)
+- **Alert Map Layer** — GATRA detections plotted on the global map with pulsing markers, correlating SOC alerts with geopolitical events in the same view
+
+### Geopolitical-Cyber Correlation Engine
+- **CII -> RL Reward Signal** — World Monitor's Country Instability Index feeds into GATRA's multi-objective reinforcement learning model, so the SOC automatically adjusts defensive posture when regional instability rises
+- **Submarine Cable Health -> BGP Anomaly Detection** — cable degradation near Indonesia (AAE-1, SEA-ME-WE 3/5/6, Palapa Ring) automatically lowers BGP alert thresholds in GATRA's Anomaly Detection Agent
+- **ACLED Conflicts -> Infrastructure Threat Scoring** — armed conflict events mapped against 25,000+ IOH cell tower locations with RED/AMBER/GREEN proximity zones
+- **Prediction Market Early Warning** — Polymarket probability shifts >15% inject early-warning signals into GATRA's threat analysis pipeline 15-30 minutes before traditional detection
+
+### Indonesia-Specific Intelligence
+- Indonesian cybersecurity RSS feeds: BSSN, Krebs on Security, Bleeping Computer, The Hacker News, Dark Reading
+- Submarine cable monitoring for Indonesia-critical routes
+- BNPB (disaster) and BMKG (meteorology) integration for Ring of Fire early warning
+- Cell tower overlay with population exposure estimation for disaster response
+
+### GATRA AI Agents
+
+| Agent | Role | Technology |
+|-------|------|-----------|
+| **ADA** | Anomaly Detection | Isolation Forest + LSTM autoencoder, <2 min detection |
+| **TAA** | Threat Analysis | RL-based deep investigation, Actor-Critic algorithms |
+| **CRA** | Compliance & Response | Automated incident response orchestration |
+| **CLA** | Compliance Logging | Real-time audit trail generation |
+| **RVA** | Risk & Vulnerability | CVSS v4, EPSS, CISA KEV prioritization |
+
+### Production Results at IOH
+- **58.4%** operational cost reduction
+- **79%** analyst workload reduction
+- **60M+** subscribers protected
+- **<2 min** mean time to detect anomalies
 
 ---
 
 ## Live Demos
 
-| Variant             | URL                                                          | Focus                                            |
-| ------------------- | ------------------------------------------------------------ | ------------------------------------------------ |
-| **World Monitor**   | [worldmonitor.app](https://worldmonitor.app)                 | Geopolitics, military, conflicts, infrastructure |
-| **Tech Monitor**    | [tech.worldmonitor.app](https://tech.worldmonitor.app)       | Startups, AI/ML, cloud, cybersecurity            |
-| **Finance Monitor** | [finance.worldmonitor.app](https://finance.worldmonitor.app) | Global markets, trading, central banks, Gulf FDI |
+| Variant | URL | Focus |
+|---------|-----|-------|
+| **🛡️ Cyber (GATRA)** | [worldmonitor-gatra.vercel.app](https://worldmonitor-gatra.vercel.app/) | SOC command center, cyber threats, infrastructure defense |
+| **🌍 World** | [worldmonitor.app](https://worldmonitor.app) | Geopolitics, military, conflicts |
+| **💻 Tech** | [tech.worldmonitor.app](https://tech.worldmonitor.app) | Startups, AI/ML, cybersecurity |
+| **📈 Finance** | [finance.worldmonitor.app](https://finance.worldmonitor.app) | Markets, central banks, Gulf FDI |
 
-All three variants run from a single codebase — switch between them with one click via the header bar (🌍 WORLD | 💻 TECH | 📈 FINANCE).
+All four variants run from a single codebase — switch between them with one click via the header bar (🌍 WORLD | 💻 TECH | 📈 FINANCE | 🛡️ CYBER).
 
 ---
 
-## Key Features
+## World Monitor Key Features
 
 ### Localization & Regional Support
 
