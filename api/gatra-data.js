@@ -135,7 +135,29 @@ const CRA_TEMPLATES = [
   { text: 'Enabled enhanced logging on segment', type: 'rule_pushed' },
 ];
 
-// ── Row → GatraAlert transform ─────────────────────────────────────
+// ── MITRE mapping for classification types ────────────────────────
+
+const CLASSIFICATION_MITRE = {
+  'Error':                { id: 'T1562', name: 'Impair Defenses' },
+  'Operations':           { id: 'T1059', name: 'Command and Scripting Interpreter' },
+  'Audit':                { id: 'T1078', name: 'Valid Accounts' },
+  'Security':             { id: 'T1110', name: 'Brute Force' },
+  'Authentication':       { id: 'T1078', name: 'Valid Accounts' },
+  'Network':              { id: 'T1071', name: 'Application Layer Protocol' },
+  'Malware':              { id: 'T1204', name: 'User Execution' },
+  'Intrusion':            { id: 'T1190', name: 'Exploit Public-Facing Application' },
+  'Suspicious':           { id: 'T1036', name: 'Masquerading' },
+  'Compromise':           { id: 'T1021', name: 'Remote Services' },
+};
+
+// ── Row transforms — one per strategy type ────────────────────────
+
+function priorityToSeverity(p) {
+  if (p >= 80) return 'critical';
+  if (p >= 60) return 'high';
+  if (p >= 30) return 'medium';
+  return 'low';
+}
 
 function probToSeverity(p) {
   if (p >= 0.9) return 'critical';
@@ -144,70 +166,129 @@ function probToSeverity(p) {
   return 'low';
 }
 
-function rowToAlert(fields, idx) {
-  // Column order matches the SELECT clause
+/** Transform a siem_events row (alarmId, events JSON, priority, etc.) */
+function siemRowToAlert(fields, idx) {
   const v = (i) => fields[i]?.v ?? '';
-  const alarmKey  = v(0) || `bq-${idx}`;
-  const probY1    = parseFloat(v(1)) || 0;
-  const scoredAt  = v(2);
-  const rank      = parseInt(v(3)) || idx;
-  const eventTs   = v(4);
-  const srcIp     = v(5);
-  const dstIp     = v(6);
-  const port      = v(7);
-  const protocol  = v(8);
-  const action    = v(9);
-  const page      = v(10);
-  const details   = v(11);
-  const label     = v(14);
-  const labelSev  = parseFloat(v(15)) || 0;
+  const alarmId       = v(0) || `siem-${idx}`;
+  const eventName     = v(1);
+  const classification = v(2);
+  const classType     = v(3);
+  const entityName    = v(4);
+  const impactedHost  = v(5);
+  const originHost    = v(6);
+  const logDate       = v(7);
+  const logMessage    = v(8);
+  const priority      = parseInt(v(9)) || 0;
+  const severity      = v(10);
+  const serviceName   = v(11);
+  const direction     = v(12);
+  const impactedIP    = v(13);
+  const originIP      = v(14);
+  const impactedPort  = v(15);
+  const originPort    = v(16);
+  const protocol      = v(17);
+  const ingestionTime = v(18);
 
-  // MITRE mapping from action
-  const mitre = MITRE_MAP[action] || MITRE_DEFAULT;
+  // MITRE mapping from classification
+  const mitre = CLASSIFICATION_MITRE[classification] || CLASSIFICATION_MITRE[classType] || MITRE_DEFAULT;
 
-  // Severity — use label if available, else derive from prob_y1
-  let severity = probToSeverity(probY1);
-  if (label === 'threat' && labelSev >= 0.7) severity = labelSev >= 0.9 ? 'critical' : 'high';
+  // Severity from priority field
+  const sev = priorityToSeverity(priority);
 
-  // Confidence
-  const confidence = Math.round(probY1 * 100);
+  // Confidence from priority (normalize 0-100 range)
+  const confidence = Math.min(99, Math.max(10, priority));
 
-  // Location — deterministic from alarm_key
-  const loc = hashPick(alarmKey, LOCATIONS);
+  // Location from entityName (e.g. "Balikpapan Region") or deterministic
+  const loc = entityToLocation(entityName) || hashPick(alarmId, LOCATIONS);
 
   // Description
-  let desc;
-  if (srcIp && dstIp) {
-    desc = `${action || 'Activity'}: ${srcIp} → ${dstIp}`;
-    if (port) desc += `:${port}`;
-    if (protocol) desc += ` (${protocol})`;
-  } else if (details) {
-    desc = details.length > 200 ? details.slice(0, 197) + '...' : details;
-  } else {
-    desc = `ADA anomaly score ${probY1.toFixed(3)} — queue rank #${rank}`;
-  }
+  let desc = eventName || logMessage || `SIEM alarm #${alarmId}`;
+  if (desc.length > 200) desc = desc.slice(0, 197) + '...';
 
-  const infra = page || `TELCO-NODE-${String(Math.abs(hashCode(alarmKey)) % 20 + 1).padStart(2, '0')}`;
+  // Infrastructure
+  const infra = impactedHost || originHost || `SIEM-${entityName || 'UNKNOWN'}`;
 
   return {
-    id: `gatra-bq-${alarmKey}`,
+    id: `gatra-siem-${alarmId}`,
+    severity: sev,
+    mitreId: mitre.id,
+    mitreName: mitre.name,
+    description: desc,
+    confidence,
+    lat: loc.lat + (hashFloat(alarmId) - 0.5) * 0.06,
+    lon: loc.lon + (hashFloat(alarmId + 'x') - 0.5) * 0.06,
+    locationName: loc.name,
+    infrastructure: infra,
+    timestamp: logDate || ingestionTime || new Date().toISOString(),
+    agent: 'ADA',
+    _srcIp: originIP,
+    _dstIp: impactedIP,
+    _label: classification === 'Security' || classification === 'Malware' ? 'threat' : '',
+    _probY1: priority / 100,
+  };
+}
+
+/** Transform an activity_logs row */
+function activityRowToAlert(fields, idx) {
+  const v = (i) => fields[i]?.v ?? '';
+  const eventTs   = v(0);
+  const user      = v(1);
+  const action    = v(2);
+  const details   = v(3);
+  const page      = v(4);
+  const sessionId = v(5) || `act-${idx}`;
+
+  const mitre = MITRE_MAP[action] || MITRE_DEFAULT;
+
+  // Parse details JSON if possible for richer info
+  let detailObj = {};
+  try { if (details) detailObj = JSON.parse(details); } catch {}
+
+  const severity = action === 'login_failed' ? 'medium'
+    : action === 'login_success' ? 'low'
+    : 'low';
+
+  const confidence = action.includes('fail') ? 55 : 35;
+  const loc = hashPick(sessionId, LOCATIONS);
+
+  let desc = `${action}: ${user || 'unknown'}`;
+  if (page && page !== 'unknown') desc += ` on ${page}`;
+
+  return {
+    id: `gatra-act-${sessionId}-${idx}`,
     severity,
     mitreId: mitre.id,
     mitreName: mitre.name,
     description: desc,
     confidence,
-    lat: loc.lat + (hashFloat(alarmKey) - 0.5) * 0.08,
-    lon: loc.lon + (hashFloat(alarmKey + 'x') - 0.5) * 0.08,
+    lat: loc.lat + (hashFloat(sessionId) - 0.5) * 0.06,
+    lon: loc.lon + (hashFloat(sessionId + 'x') - 0.5) * 0.06,
     locationName: loc.name,
-    infrastructure: infra,
-    timestamp: eventTs || scoredAt || new Date().toISOString(),
+    infrastructure: page || 'Streamlit Dashboard',
+    timestamp: eventTs || new Date().toISOString(),
     agent: 'ADA',
-    // Internal — stripped before response
-    _srcIp: srcIp,
-    _dstIp: dstIp,
-    _label: label,
-    _probY1: probY1,
+    _srcIp: '',
+    _dstIp: '',
+    _label: action === 'login_failed' ? 'threat' : '',
+    _probY1: confidence / 100,
   };
+}
+
+/** Map entity name to known Indonesian location */
+function entityToLocation(entity) {
+  if (!entity) return null;
+  const e = entity.toLowerCase();
+  if (e.includes('jakarta') || e.includes('jkt')) return { name: 'Jakarta', lat: -6.2088, lon: 106.8456 };
+  if (e.includes('surabaya') || e.includes('sby')) return { name: 'Surabaya', lat: -7.2575, lon: 112.7521 };
+  if (e.includes('bandung') || e.includes('bdg')) return { name: 'Bandung', lat: -6.9175, lon: 107.6191 };
+  if (e.includes('medan') || e.includes('mdn')) return { name: 'Medan', lat: 3.5952, lon: 98.6722 };
+  if (e.includes('makassar') || e.includes('mks') || e.includes('ujung pandang')) return { name: 'Makassar', lat: -5.1477, lon: 119.4327 };
+  if (e.includes('balikpapan') || e.includes('bpp')) return { name: 'Balikpapan', lat: -1.2654, lon: 116.8311 };
+  if (e.includes('semarang') || e.includes('smg')) return { name: 'Semarang', lat: -6.9666, lon: 110.4196 };
+  if (e.includes('denpasar') || e.includes('bali')) return { name: 'Denpasar', lat: -8.6500, lon: 115.2167 };
+  if (e.includes('palembang') || e.includes('plm')) return { name: 'Palembang', lat: -2.9761, lon: 104.7754 };
+  if (e.includes('manado') || e.includes('mdo')) return { name: 'Manado', lat: 1.4748, lon: 124.8421 };
+  return null;
 }
 
 // ── Build full snapshot ────────────────────────────────────────────
@@ -303,104 +384,91 @@ export default async function handler(req) {
     const saProject = sa.project_id || 'chronicle-dev-2be9';
     const token = await getAccessToken(sa);
 
-    // Try multiple query strategies — production tables may be in a different project
+    // Try multiple query strategies — each with its own transform function
     const PROD_PROJECT = 'gatra-prd-c335';
     const DATASET = 'gatra_database';
 
     const strategies = [
-      {
-        name: 'prod_queue',
-        project: PROD_PROJECT,
-        sql: `
-          SELECT
-            q.alarm_key, q.prob_y1, CAST(q.scored_at AS STRING) AS scored_at, q.rk,
-            CAST(a.event_timestamp AS STRING) AS event_timestamp,
-            IFNULL(a.src_ip, '') AS src_ip, IFNULL(a.dst_ip, '') AS dst_ip,
-            IFNULL(CAST(a.port AS STRING), '') AS port, IFNULL(a.protocol, '') AS protocol,
-            IFNULL(a.action, '') AS action, IFNULL(a.page, '') AS page,
-            IFNULL(a.details, '') AS details,
-            IFNULL(CAST(a.bytes_sent AS STRING), '0') AS bytes_sent,
-            IFNULL(CAST(a.bytes_received AS STRING), '0') AS bytes_received,
-            IFNULL(f.label, '') AS label, IFNULL(CAST(f.severity AS STRING), '0') AS label_severity
-          FROM \`${PROD_PROJECT}.${DATASET}.ada_predictions_v4_prod_queue\` q
-          LEFT JOIN \`${PROD_PROJECT}.${DATASET}.activity_logs\` a
-            ON q.alarm_key = a.alarm_id OR q.alarm_key = a.row_key
-          LEFT JOIN \`${PROD_PROJECT}.${DATASET}.ada_feedback\` f
-            ON q.alarm_key = f.alarm_id OR q.alarm_key = f.row_key
-          WHERE q.snapshot_dt >= DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY)
-          ORDER BY q.prob_y1 DESC LIMIT 50`,
-      },
-      {
-        name: 'test_scored',
-        project: PROD_PROJECT,
-        sql: `
-          SELECT
-            q.alarm_key, q.prob_y1, CAST(q.scored_at AS STRING) AS scored_at, CAST(0 AS INT64) AS rk,
-            CAST(a.event_timestamp AS STRING) AS event_timestamp,
-            IFNULL(a.src_ip, '') AS src_ip, IFNULL(a.dst_ip, '') AS dst_ip,
-            IFNULL(CAST(a.port AS STRING), '') AS port, IFNULL(a.protocol, '') AS protocol,
-            IFNULL(a.action, '') AS action, IFNULL(a.page, '') AS page,
-            IFNULL(a.details, '') AS details,
-            IFNULL(CAST(a.bytes_sent AS STRING), '0') AS bytes_sent,
-            IFNULL(CAST(a.bytes_received AS STRING), '0') AS bytes_received,
-            IFNULL(f.label, '') AS label, IFNULL(CAST(f.severity AS STRING), '0') AS label_severity
-          FROM \`${PROD_PROJECT}.${DATASET}.ada_predictions_v4_test_scored\` q
-          LEFT JOIN \`${PROD_PROJECT}.${DATASET}.activity_logs\` a
-            ON q.alarm_key = a.alarm_id OR q.alarm_key = a.row_key
-          LEFT JOIN \`${PROD_PROJECT}.${DATASET}.ada_feedback\` f
-            ON q.alarm_key = f.alarm_id OR q.alarm_key = f.row_key
-          ORDER BY q.prob_y1 DESC LIMIT 50`,
-      },
-      {
-        name: 'dev_activity',
-        project: saProject,
-        sql: `
-          SELECT
-            IFNULL(a.alarm_id, a.row_key) AS alarm_key,
-            CAST(0.5 AS FLOAT64) AS prob_y1,
-            CAST(a.event_timestamp AS STRING) AS scored_at,
-            CAST(0 AS INT64) AS rk,
-            CAST(a.event_timestamp AS STRING) AS event_timestamp,
-            IFNULL(a.src_ip, '') AS src_ip, IFNULL(a.dst_ip, '') AS dst_ip,
-            IFNULL(CAST(a.port AS STRING), '') AS port, IFNULL(a.protocol, '') AS protocol,
-            IFNULL(a.action, '') AS action, IFNULL(a.page, '') AS page,
-            IFNULL(a.details, '') AS details,
-            IFNULL(CAST(a.bytes_sent AS STRING), '0') AS bytes_sent,
-            IFNULL(CAST(a.bytes_received AS STRING), '0') AS bytes_received,
-            '' AS label, '0' AS label_severity
-          FROM \`${saProject}.${DATASET}.activity_logs\` a
-          ORDER BY a.event_timestamp DESC LIMIT 50`,
-      },
+      // Strategy 1: SIEM events from dev project — richest data (LogRhythm alarms with JSON events)
       {
         name: 'dev_siem',
         project: saProject,
+        transform: siemRowToAlert,
         sql: `
           SELECT
-            IFNULL(alarm_id, row_key) AS alarm_key,
-            CAST(0.5 AS FLOAT64) AS prob_y1,
-            CAST(event_timestamp AS STRING) AS scored_at,
-            CAST(0 AS INT64) AS rk,
+            s.alarmId,
+            IFNULL(STRING(JSON_VALUE(e, '$.commonEventName')), '') AS eventName,
+            IFNULL(STRING(JSON_VALUE(e, '$.classificationName')), '') AS classification,
+            IFNULL(STRING(JSON_VALUE(e, '$.classificationTypeName')), '') AS classType,
+            IFNULL(STRING(JSON_VALUE(e, '$.entityName')), '') AS entityName,
+            IFNULL(STRING(JSON_VALUE(e, '$.impactedHostName')), '') AS impactedHost,
+            IFNULL(STRING(JSON_VALUE(e, '$.originHostName')), '') AS originHost,
+            IFNULL(STRING(JSON_VALUE(e, '$.logDate')), '') AS logDate,
+            IFNULL(STRING(JSON_VALUE(e, '$.logMessage')), '') AS logMessage,
+            CAST(IFNULL(INT64(JSON_VALUE(e, '$.priority')), 0) AS STRING) AS priority,
+            IFNULL(STRING(JSON_VALUE(e, '$.severity')), '') AS severity,
+            IFNULL(STRING(JSON_VALUE(e, '$.serviceName')), '') AS serviceName,
+            IFNULL(STRING(JSON_VALUE(e, '$.directionName')), '') AS direction,
+            IFNULL(STRING(JSON_VALUE(e, '$.impactedIP')), '') AS impactedIP,
+            IFNULL(STRING(JSON_VALUE(e, '$.originIP')), '') AS originIP,
+            CAST(IFNULL(INT64(JSON_VALUE(e, '$.impactedPort')), -1) AS STRING) AS impactedPort,
+            CAST(IFNULL(INT64(JSON_VALUE(e, '$.originPort')), -1) AS STRING) AS originPort,
+            IFNULL(STRING(JSON_VALUE(e, '$.protocolName')), '') AS protocol,
+            CAST(s.ingestion_time AS STRING) AS ingestionTime
+          FROM \`${saProject}.${DATASET}.siem_events\` s,
+          UNNEST(JSON_QUERY_ARRAY(s.events)) AS e
+          ORDER BY s.ingestion_time DESC, CAST(IFNULL(INT64(JSON_VALUE(e, '$.priority')), 0) AS INT64) DESC
+          LIMIT 60`,
+      },
+      // Strategy 2: Activity logs from dev project — Streamlit app usage
+      {
+        name: 'dev_activity',
+        project: saProject,
+        transform: activityRowToAlert,
+        sql: `
+          SELECT
             CAST(event_timestamp AS STRING) AS event_timestamp,
-            IFNULL(src_ip, '') AS src_ip, IFNULL(dst_ip, '') AS dst_ip,
-            IFNULL(CAST(port AS STRING), '') AS port, IFNULL(protocol, '') AS protocol,
-            IFNULL(action, '') AS action, IFNULL(page, '') AS page,
+            IFNULL(user, '') AS user,
+            IFNULL(action, '') AS action,
             IFNULL(details, '') AS details,
-            IFNULL(CAST(bytes_sent AS STRING), '0') AS bytes_sent,
-            IFNULL(CAST(bytes_received AS STRING), '0') AS bytes_received,
-            '' AS label, '0' AS label_severity
-          FROM \`${saProject}.${DATASET}.siem_events\`
-          ORDER BY event_timestamp DESC LIMIT 50`,
+            IFNULL(page, '') AS page,
+            IFNULL(session_id, '') AS session_id
+          FROM \`${saProject}.${DATASET}.activity_logs\`
+          ORDER BY event_timestamp DESC
+          LIMIT 50`,
+      },
+      // Strategy 3: Production queue (cross-project — may fail if SA lacks permissions)
+      {
+        name: 'prod_queue',
+        project: PROD_PROJECT,
+        transform: siemRowToAlert,
+        sql: `
+          SELECT
+            CAST(q.alarm_key AS STRING) AS alarmId,
+            '' AS eventName, '' AS classification, '' AS classType, '' AS entityName,
+            '' AS impactedHost, '' AS originHost,
+            CAST(q.scored_at AS STRING) AS logDate,
+            '' AS logMessage,
+            CAST(CAST(q.prob_y1 * 100 AS INT64) AS STRING) AS priority,
+            '' AS severity, '' AS serviceName, '' AS direction,
+            '' AS impactedIP, '' AS originIP, '' AS impactedPort, '' AS originPort, '' AS protocol,
+            CAST(q.scored_at AS STRING) AS ingestionTime
+          FROM \`${PROD_PROJECT}.${DATASET}.ada_predictions_v4_prod_queue\` q
+          WHERE q.snapshot_dt >= DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY)
+          ORDER BY q.prob_y1 DESC LIMIT 50`,
       },
     ];
 
     let rows = [];
     let usedStrategy = 'none';
+    let transformFn = siemRowToAlert;
     const strategyErrors = [];
 
     for (const s of strategies) {
       try {
         rows = await runQuery(token, s.project, s.sql);
         usedStrategy = s.name;
+        transformFn = s.transform;
         if (rows.length > 0) break;
         strategyErrors.push({ name: s.name, result: 'empty (0 rows)' });
       } catch (e) {
@@ -408,7 +476,7 @@ export default async function handler(req) {
       }
     }
 
-    const alerts = rows.map((r, i) => rowToAlert(r.f, i));
+    const alerts = rows.map((r, i) => transformFn(r.f, i));
     alerts.sort((a, b) => {
       const ta = new Date(a.timestamp).getTime() || 0;
       const tb = new Date(b.timestamp).getTime() || 0;
