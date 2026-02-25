@@ -19,23 +19,25 @@ import type { PredictionMarket } from '@/services/prediction';
 
 const RELEVANCE_KEYWORDS: Record<number, string[]> = {
   1: [
-    'cyberattack', 'cyber attack', 'hack ', 'hacking', 'ransomware',
-    'infrastructure attack', 'indonesia', 'southeast asia', 'asean',
-    'critical infrastructure cyber',
+    'cyberattack', 'cyber', 'hack', 'ransomware', 'malware',
+    'indonesia', 'southeast asia', 'asean', 'jakarta',
+    'data breach', 'infrastructure attack',
   ],
   2: [
-    'south china sea', 'taiwan strait', 'philippines military', 'myanmar',
-    'indonesia election', 'indonesia political', 'asean conflict',
-    'asia pacific military', 'taiwan',
+    'china', 'taiwan', 'south china sea', 'philippines', 'myanmar',
+    'north korea', 'pyongyang', 'beijing', 'asia',
+    'pacific', 'india', 'modi',
   ],
   3: [
-    'critical infrastructure', 'power grid', 'internet outage',
-    'submarine cable', 'global cyber', 'nation-state hack',
-    'election interference',
+    'russia', 'ukraine', 'iran', 'israel', 'gaza', 'hezbollah',
+    'war', 'invasion', 'ceasefire', 'military', 'conflict',
+    'nato', 'missile', 'nuclear', 'sanction', 'weapon',
+    'attack', 'strike', 'drone',
   ],
   4: [
-    'world war', 'nuclear', 'sanctions china', 'trade war',
-    'military escalation', 'nato', 'russia ukraine', 'iran israel',
+    'election', 'president', 'trump', 'tariff', 'trade',
+    'recession', 'crisis', 'coup', 'protest', 'middle east',
+    'oil', 'energy', 'embargo', 'geopolit',
   ],
 };
 
@@ -448,13 +450,20 @@ export class PredictionSignalsPanel extends Panel {
   }
 
   private renderNoSignals(): void {
+    const isDataEmpty = this.totalMarketsScanned === 0;
     const html = `
       <div class="pred-signals">
         ${this.renderHeader()}
         <div class="pred-empty">
-          <div class="pred-empty-title">NOMINAL</div>
-          <div>No geopolitically relevant markets with significant activity detected.</div>
-          <div style="margin-top:4px;color:#555;">Monitoring ${this.totalMarketsScanned} active markets. Filtered to 0 relevant signals.</div>
+          ${isDataEmpty ? `
+            <div class="pred-empty-title">AWAITING DATA</div>
+            <div>Polymarket feed loading. Data typically arrives within 1\u20132 minutes.</div>
+            <div style="margin-top:4px;color:#555;">Cloudflare JA3 protection may delay initial fetch. Auto-retry active.</div>
+          ` : `
+            <div class="pred-empty-title">NOMINAL</div>
+            <div>No geopolitically relevant markets with significant activity detected.</div>
+            <div style="margin-top:4px;color:#555;">Scanned ${this.totalMarketsScanned} active markets. Filtered to 0 relevant signals.</div>
+          `}
           <div style="margin-top:6px;">Early warning multiplier: <b>\u00D71.0</b></div>
         </div>
       </div>`;

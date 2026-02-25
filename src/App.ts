@@ -1860,6 +1860,11 @@ export class App {
     this.latestPredictions = predictions;
     (this.panels['polymarket'] as PredictionPanel).renderPredictions(predictions);
 
+    // Feed snapshot predictions to Predictive Signals panel (cyber variant)
+    if (this.panels['prediction-signals']) {
+      (this.panels['prediction-signals'] as PredictionSignalsPanel).updatePredictions(predictions);
+    }
+
     this.map?.setHotspotLevels(snapshot.hotspotLevels);
   }
 
