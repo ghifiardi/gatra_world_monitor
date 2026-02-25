@@ -250,8 +250,99 @@ async function fetchTopMarkets(): Promise<PredictionMarket[]> {
     });
 }
 
+// ── Manifold Markets fallback ─────────────────────────────────────
+// Free API with CORS support, no Cloudflare blocking.
+// Used when Polymarket (Gamma API) is unreachable.
+
+interface ManifoldMarket {
+  question: string;
+  probability?: number;   // 0-1
+  volume?: number;
+  totalLiquidity?: number;
+  url?: string;
+  slug?: string;
+  isResolved?: boolean;
+  closeTime?: number;
+}
+
+const MANIFOLD_SEARCH_TERMS = [
+  'war',
+  'china taiwan',
+  'ukraine russia',
+  'iran israel',
+  'nuclear',
+  'cyber attack',
+  'tariff trade',
+  'election 2026',
+  'nato',
+  'missile',
+  'invasion',
+  'sanction',
+];
+
+async function fetchManifoldMarkets(): Promise<PredictionMarket[]> {
+  const seen = new Set<string>();
+  const markets: PredictionMarket[] = [];
+
+  // Fan out a few searches in parallel for diverse coverage
+  const batches = [
+    MANIFOLD_SEARCH_TERMS.slice(0, 4),
+    MANIFOLD_SEARCH_TERMS.slice(4, 8),
+    MANIFOLD_SEARCH_TERMS.slice(8),
+  ];
+
+  for (const batch of batches) {
+    const results = await Promise.all(
+      batch.map(async (term) => {
+        try {
+          const resp = await fetch(
+            `https://api.manifold.markets/v0/search-markets?term=${encodeURIComponent(term)}&sort=liquidity&filter=open&limit=10`,
+            { signal: AbortSignal.timeout(10_000) },
+          );
+          if (!resp.ok) return [];
+          return (await resp.json()) as ManifoldMarket[];
+        } catch {
+          return [];
+        }
+      }),
+    );
+
+    for (const batch of results) {
+      for (const m of batch) {
+        if (!m.question || m.isResolved) continue;
+        const key = m.question.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+
+        if (isExcluded(m.question)) continue;
+
+        const yesPrice = typeof m.probability === 'number'
+          ? Math.round(m.probability * 100)
+          : 50;
+        const volume = m.totalLiquidity ?? m.volume ?? 0;
+
+        markets.push({
+          title: m.question,
+          yesPrice,
+          volume,
+          url: m.url ?? (m.slug ? `https://manifold.markets/${m.slug}` : undefined),
+        });
+      }
+    }
+
+    if (markets.length >= 15) break;
+  }
+
+  return markets
+    .sort((a, b) => (b.volume ?? 0) - (a.volume ?? 0))
+    .slice(0, 15);
+}
+
+// ── Main fetch ───────────────────────────────────────────────────
+
 export async function fetchPredictions(): Promise<PredictionMarket[]> {
-  return breaker.execute(async () => {
+  // Try Polymarket first via circuit breaker
+  const polyResult = await breaker.execute(async () => {
     const tags = SITE_VARIANT === 'tech' ? TECH_TAGS : GEOPOLITICAL_TAGS;
 
     const eventResults = await Promise.all(tags.map(tag => fetchEventsByTag(tag, 20)));
@@ -321,6 +412,20 @@ export async function fetchPredictions(): Promise<PredictionMarket[]> {
 
     return result;
   }, []);
+
+  // If Polymarket returned data, use it
+  if (polyResult.length > 0) return polyResult;
+
+  // Fallback: Manifold Markets (free API, CORS-enabled, no Cloudflare blocking)
+  console.log('[Predictions] Polymarket empty, falling back to Manifold Markets');
+  try {
+    const manifoldResult = await fetchManifoldMarkets();
+    if (manifoldResult.length > 0) return manifoldResult;
+  } catch (err) {
+    console.warn('[Predictions] Manifold Markets fallback failed:', err);
+  }
+
+  return [];
 }
 
 const COUNTRY_TAG_MAP: Record<string, string[]> = {

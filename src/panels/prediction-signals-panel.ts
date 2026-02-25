@@ -441,7 +441,7 @@ export class PredictionSignalsPanel extends Panel {
         ${this.renderHeader()}
         <div class="pred-empty">
           <div class="pred-empty-title">UNAVAILABLE</div>
-          <div>Polymarket data feed offline.</div>
+          <div>Prediction market feeds offline (Polymarket + Manifold).</div>
           <div style="margin-top:6px;">Early warning multiplier: <b>\u00D71.0</b></div>
           <div style="color:#555;">GATRA RL operating on CII only</div>
         </div>
@@ -457,8 +457,8 @@ export class PredictionSignalsPanel extends Panel {
         <div class="pred-empty">
           ${isDataEmpty ? `
             <div class="pred-empty-title">AWAITING DATA</div>
-            <div>Polymarket feed loading. Data typically arrives within 1\u20132 minutes.</div>
-            <div style="margin-top:4px;color:#555;">Cloudflare JA3 protection may delay initial fetch. Auto-retry active.</div>
+            <div>Prediction market feed loading. Data typically arrives within 1\u20132 minutes.</div>
+            <div style="margin-top:4px;color:#555;">Sources: Polymarket (primary) \u2192 Manifold Markets (fallback). Auto-retry active.</div>
           ` : `
             <div class="pred-empty-title">NOMINAL</div>
             <div>No geopolitically relevant markets with significant activity detected.</div>
