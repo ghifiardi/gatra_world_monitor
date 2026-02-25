@@ -238,6 +238,18 @@ export class App {
         STORAGE_KEYS.panels,
         DEFAULT_PANELS
       );
+      // Merge in any new panels from DEFAULT_PANELS that aren't in stored settings
+      let panelsMerged = false;
+      for (const [key, config] of Object.entries(DEFAULT_PANELS)) {
+        if (!(key in this.panelSettings)) {
+          this.panelSettings[key] = config;
+          panelsMerged = true;
+        }
+      }
+      if (panelsMerged) {
+        saveToStorage(STORAGE_KEYS.panels, this.panelSettings);
+        console.log('[App] Merged new default panels into stored settings');
+      }
       console.log('[App] Loaded panel settings from storage:', Object.entries(this.panelSettings).filter(([_, v]) => !v.enabled).map(([k]) => k));
 
       // One-time migration: reorder panels for existing users (v1.9 panel layout)
@@ -305,6 +317,20 @@ export class App {
         console.log('[App] Applied layout reset migration (v2.5): cleared panel order/spans');
       }
       localStorage.setItem(LAYOUT_RESET_MIGRATION_KEY, 'done');
+    }
+
+    // One-time migration: cyber variant CII Monitor panel (v2.6.1)
+    // Reset panel settings + order so cii-score appears for existing cyber users.
+    // Note: uses fresh key because v2.6 was consumed by a no-op due to merge ordering.
+    const CII_MIGRATION_KEY = 'worldmonitor-cii-panel-v2.6.2';
+    if (!localStorage.getItem(CII_MIGRATION_KEY)) {
+      if (currentVariant === 'cyber') {
+        this.panelSettings = { ...DEFAULT_PANELS };
+        saveToStorage(STORAGE_KEYS.panels, this.panelSettings);
+        localStorage.removeItem(this.PANEL_ORDER_KEY);
+        console.log('[App] CII migration: reset cyber panel settings to include CII Monitor');
+      }
+      localStorage.setItem(CII_MIGRATION_KEY, 'done');
     }
 
     // Desktop key management panel must always remain accessible in Tauri.
