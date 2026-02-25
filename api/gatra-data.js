@@ -22,6 +22,13 @@ const SANITIZE_RULES = [
   // Internal domain references
   [/\.ioh\.co\.id/gi, '.telco-corp.local'],
   [/\.indosat\.com/gi, '.telco-corp.local'],
+  // APT group names
+  [/Gallium/gi, 'APT-G01'],
+  // Technical internals that should not be exposed
+  [/\bbad_ip\b/g, 'malicious_traffic'],
+  [/\bcredential_access\b/g, 'auth_anomaly'],
+  [/\bBigQuery\b/gi, 'Cloud Analytics'],
+  [/\bbigquery\b/g, 'cloud_analytics'],
 ];
 
 /** Scrub a string of all telco provider references */
@@ -361,7 +368,7 @@ function adaStateToAlert(fields, idx) {
 
   // Map case_class to MITRE
   const CASE_CLASS_MITRE = {
-    bad_ip:              { id: 'T1071', name: 'C2 Communication (Bad IP)' },
+    bad_ip:              { id: 'T1071', name: 'C2 Communication (Malicious Traffic)' },
     malware:             { id: 'T1204', name: 'User Execution (Malware)' },
     brute_force:         { id: 'T1110', name: 'Brute Force' },
     lateral_movement:    { id: 'T1021', name: 'Remote Services (Lateral)' },
@@ -616,7 +623,7 @@ function buildSnapshot(alerts, realTaaAnalyses, realCraActions) {
     taaAnalyses,
     correlations: [],
     lastRefresh: now,
-    source: 'bigquery',
+    source: 'gatra_live',
     rowCount: alerts.length,
   };
 }
@@ -946,7 +953,7 @@ export default async function handler(req) {
   } catch (err) {
     console.error('[gatra-data] BigQuery error:', err);
     return new Response(
-      JSON.stringify({ error: String(err), source: 'bigquery_error' }),
+      JSON.stringify({ error: String(err), source: 'api_error' }),
       { status: 500, headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' } },
     );
   }

@@ -2,7 +2,7 @@
  * GATRA SOC Connector — unified integration layer
  *
  * Data flow:
- *   1. Try /api/gatra-data  (real BigQuery — production predictions + activity logs)
+ *   1. Try /api/gatra-data  (real GATRA API — production predictions + activity logs)
  *   2. Fall back to mock data from @/services/gatra if the API is unavailable
  *
  * Consumers (panels, layers) always get the same GatraConnectorSnapshot shape
@@ -32,13 +32,13 @@ import type {
 
 let _snapshot: GatraConnectorSnapshot | null = null;
 let _refreshing = false;
-let _source: 'bigquery' | 'mock' = 'mock';
+let _source: 'live' | 'mock' = 'mock';
 const _listeners: Set<(snap: GatraConnectorSnapshot) => void> = new Set();
 
-// ── BigQuery API fetch ──────────────────────────────────────────────
+// ── GATRA API API fetch ──────────────────────────────────────────────
 
-/** Attempt to load real GATRA data from the BigQuery API route. */
-async function fetchFromBigQuery(): Promise<GatraConnectorSnapshot | null> {
+/** Attempt to load real GATRA data from the GATRA API API route. */
+async function fetchFromGatraAPI(): Promise<GatraConnectorSnapshot | null> {
   try {
     const res = await fetch('/api/gatra-data', { signal: AbortSignal.timeout(30000) });
     if (!res.ok) return null;
@@ -55,7 +55,7 @@ async function fetchFromBigQuery(): Promise<GatraConnectorSnapshot | null> {
     };
 
     if (data.error) {
-      console.warn('[GatraConnector] BQ API returned error:', data.error);
+      console.warn('[GatraConnector] GATRA API returned error:', data.error);
       return null;
     }
 
@@ -95,7 +95,7 @@ async function fetchFromBigQuery(): Promise<GatraConnectorSnapshot | null> {
       lastRefresh: new Date(),
     };
   } catch (err) {
-    console.warn('[GatraConnector] BQ API unreachable, will use mock:', err);
+    console.warn('[GatraConnector] GATRA API unreachable, will use mock:', err);
     return null;
   }
 }
@@ -121,7 +121,7 @@ async function fetchFromMock(): Promise<GatraConnectorSnapshot> {
 // ── Public API ──────────────────────────────────────────────────────
 
 /**
- * Fetch all GATRA data — tries BigQuery first, falls back to mock.
+ * Fetch all GATRA data — tries GATRA API first, falls back to mock.
  * Returns a unified snapshot that panels, layers, and other consumers
  * can read without issuing their own requests.
  */
@@ -130,13 +130,13 @@ export async function refreshGatraData(): Promise<GatraConnectorSnapshot> {
   _refreshing = true;
 
   try {
-    // Try real BigQuery data first
-    const bqSnap = await fetchFromBigQuery();
+    // Try real GATRA API data first
+    const apiSnap = await fetchFromGatraAPI();
 
-    if (bqSnap && bqSnap.alerts.length > 0) {
-      _snapshot = bqSnap;
-      _source = 'bigquery';
-      console.log(`[GatraConnector] Live data: ${bqSnap.alerts.length} alerts from BigQuery`);
+    if (apiSnap && apiSnap.alerts.length > 0) {
+      _snapshot = apiSnap;
+      _source = 'live';
+      console.log(`[GatraConnector] Live data: ${apiSnap.alerts.length} alerts from GATRA API`);
     } else {
       _snapshot = await fetchFromMock();
       _source = 'mock';
@@ -163,8 +163,8 @@ export function getGatraSnapshot(): GatraConnectorSnapshot | null {
   return _snapshot;
 }
 
-/** Whether the last refresh used real BigQuery data or mock. */
-export function getGatraSource(): 'bigquery' | 'mock' {
+/** Whether the last refresh used real GATRA API data or mock. */
+export function getGatraSource(): 'live' | 'mock' {
   return _source;
 }
 

@@ -116,7 +116,7 @@ export class GatraSOCDashboardPanel extends Panel {
       this.applyTimeFilter();
 
       const source = getGatraSource();
-      this.setDataBadge('live', `${this.alerts.length} alerts · ${source === 'bigquery' ? 'BQ' : 'mock'}`);
+      this.setDataBadge('live', `${this.alerts.length} alerts · ${source === 'live' ? 'GATRA' : 'mock'}`);
       this.render();
     } catch (err) {
       console.error('[GatraSOCDashboardPanel] refresh error:', err);
@@ -131,7 +131,7 @@ export class GatraSOCDashboardPanel extends Panel {
     this.activeTimeRange = range;
     this.applyTimeFilter();
     const source = getGatraSource();
-    this.setDataBadge('live', `${this.alerts.length} alerts · ${source === 'bigquery' ? 'BQ' : 'mock'}`);
+    this.setDataBadge('live', `${this.alerts.length} alerts · ${source === 'live' ? 'GATRA' : 'mock'}`);
     this.render();
   }
 
