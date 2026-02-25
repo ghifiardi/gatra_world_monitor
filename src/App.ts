@@ -87,6 +87,7 @@ import { IoCLookupPanel } from '@/panels/ioc-lookup-panel';
 import { RansomwareTrackerPanel } from '@/panels/ransomware-tracker-panel';
 import { CVEFeedPanel } from '@/panels/cve-feed-panel';
 import { CiiScorePanel } from '@/panels/cii-score-panel';
+import { PredictionSignalsPanel } from '@/panels/prediction-signals-panel';
 import { refreshGatraData, ingestConflictCorrelations } from '@/gatra/connector';
 import type { SearchResult } from '@/components/SearchModal';
 import { collectStoryData } from '@/services/story-data';
@@ -322,7 +323,7 @@ export class App {
     // One-time migration: cyber variant CII Monitor panel (v2.6.1)
     // Reset panel settings + order so cii-score appears for existing cyber users.
     // Note: uses fresh key because v2.6 was consumed by a no-op due to merge ordering.
-    const CII_MIGRATION_KEY = 'worldmonitor-cii-panel-v2.6.2';
+    const CII_MIGRATION_KEY = 'worldmonitor-cii-panel-v2.6.3';
     if (!localStorage.getItem(CII_MIGRATION_KEY)) {
       if (currentVariant === 'cyber') {
         this.panelSettings = { ...DEFAULT_PANELS };
@@ -2434,6 +2435,9 @@ export class App {
 
       const ciiScorePanel = new CiiScorePanel();
       this.panels['cii-score'] = ciiScorePanel;
+
+      const predictionSignalsPanel = new PredictionSignalsPanel();
+      this.panels['prediction-signals'] = predictionSignalsPanel;
     }
 
     // AI Insights Panel (desktop only - hides itself on mobile)
@@ -3721,6 +3725,11 @@ export class App {
       const predictions = await fetchPredictions();
       this.latestPredictions = predictions;
       (this.panels['polymarket'] as PredictionPanel).renderPredictions(predictions);
+
+      // Feed prediction data to GATRA Predictive Signals panel (cyber variant)
+      if (this.panels['prediction-signals']) {
+        (this.panels['prediction-signals'] as PredictionSignalsPanel).updatePredictions(predictions);
+      }
 
       this.statusPanel?.updateFeed('Polymarket', { status: 'ok', itemCount: predictions.length });
       this.statusPanel?.updateApi('Polymarket', { status: 'ok' });

@@ -285,6 +285,7 @@ function injectCSS(): void {
 export class CiiScorePanel extends Panel {
   private scores: CountryScore[] = [];
   private rGeo: RGeoResult | null = null;
+  private rGeoConfig: RGeoConfig = { ...DEFAULT_RGEO_CONFIG };
   private refreshTimer: ReturnType<typeof setInterval> | null = null;
   private lastUpdate: Date | null = null;
   private focalPointsReady = false;
@@ -307,11 +308,30 @@ export class CiiScorePanel extends Panel {
       this.refresh();
     });
 
+    // Listen for early warning multiplier from Prediction Signals panel
+    window.addEventListener('gatra-early-warning-update', ((e: CustomEvent) => {
+      const { multiplier } = e.detail as { multiplier: number };
+      if (typeof multiplier === 'number' && multiplier >= 1.0) {
+        this.rGeoConfig = { ...this.rGeoConfig, earlyWarningMultiplier: multiplier };
+        this.recomputeRGeo();
+      }
+    }) as EventListener);
+
     // Auto-refresh every 5 minutes
     this.refreshTimer = setInterval(() => this.refresh(), 5 * 60 * 1000);
 
     // Initial attempt after short delay (data may already be loaded)
     setTimeout(() => this.refresh(), 3000);
+  }
+
+  /** Re-compute R_geo with updated config (e.g. after early warning multiplier change). */
+  private recomputeRGeo(): void {
+    const idScore = this.scores.find(s => s.code === INDONESIA_CODE);
+    if (!idScore) return;
+    const baseline = getBaseline(INDONESIA_CODE, idScore.score);
+    const idConfig = PRIORITY_COUNTRIES.find(p => p.code === INDONESIA_CODE)!;
+    this.rGeo = computeRGeo(idScore.score, baseline.mean, baseline.std, idConfig.proximityWeight, this.rGeoConfig);
+    this.render();
   }
 
   public async refresh(): Promise<void> {
@@ -332,12 +352,12 @@ export class CiiScorePanel extends Panel {
         }
       }
 
-      // Compute R_geo for Indonesia
+      // Compute R_geo for Indonesia (using current config — may include early warning multiplier)
       const idScore = this.scores.find(s => s.code === INDONESIA_CODE);
       if (idScore) {
         const baseline = getBaseline(INDONESIA_CODE, idScore.score);
         const idConfig = PRIORITY_COUNTRIES.find(p => p.code === INDONESIA_CODE)!;
-        this.rGeo = computeRGeo(idScore.score, baseline.mean, baseline.std, idConfig.proximityWeight);
+        this.rGeo = computeRGeo(idScore.score, baseline.mean, baseline.std, idConfig.proximityWeight, this.rGeoConfig);
       }
 
       // Update badge
