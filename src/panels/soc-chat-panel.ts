@@ -2059,7 +2059,6 @@ export class SocChatPanel {
     const extracted = extractIoC(text);
     const iocType = extracted ? extracted.type : 'unknown' as const;
     const iocValue = extracted ? extracted.value : '';
-    console.log('[SOC Chat] routeToAgents:', { text: text.slice(0, 60), extracted, iocType });
     if (iocType !== 'unknown') {
       const iocSender: GatraAgentDef = {
         id: 'ioc-scan', name: 'IOC', fullName: 'IOC Scanner',
