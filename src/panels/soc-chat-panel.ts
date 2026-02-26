@@ -282,32 +282,49 @@ function generateAgentResponse(agent: GatraAgentDef, message: string): string {
       // Malware / ransomware / trojan
       if (/malware|ransomware|trojan|worm|virus|rootkit/i.test(message)) {
         const malwareAlerts = alerts.filter(a => /T1059|T1053|T1547|T1055|T1027|T1486|T1490/i.test(a.mitreId));
-        return `Malware/Ransomware Detection Analysis:\n` +
-          `\u2022 Active malware-related alerts: ${malwareAlerts.length}\n` +
-          `\u2022 Detection methods active:\n` +
-          `  \u2014 Behavioral sandbox (IF anomaly scoring)\n` +
-          `  \u2014 LSTM sequence: process chain + file I/O patterns\n` +
-          `  \u2014 Signature matching: YARA rules (updated ${Math.floor(Math.random() * 4 + 1)}h ago)\n` +
-          `  \u2014 Heuristic: entropy analysis for packed/encrypted payloads\n` +
-          `\u2022 MITRE coverage: T1059 (Execution), T1547 (Persistence), T1486 (Encryption), T1490 (Inhibit Recovery)\n` +
-          `\u2022 Last 24h: ${Math.floor(Math.random() * 5)} samples detonated, ${Math.floor(Math.random() * 3)} quarantined\n` +
-          `\u2022 IOC extraction: hashes, C2 IPs, mutex names auto-fed to TAA\n` +
-          `Ask: "lateral movement" \u00B7 "C2 beacons" \u00B7 "sandbox results"`;
+        const isRansomware = /ransomware/i.test(message);
+        return `${isRansomware ? 'Ransomware' : 'Malware'} Detection Analysis:\n\n` +
+          `ADA uses a multi-layered detection approach that combines signature-based and behavioral methods to identify malicious software before it can cause damage.\n\n` +
+          `Active malware-related alerts: ${malwareAlerts.length}\n\n` +
+          `Detection methods currently active:\n` +
+          `  \u2014 Behavioral sandbox: Suspicious files are detonated in an isolated environment. The Isolation Forest model scores behavioral anomalies \u2014 file system modifications, registry changes, network callbacks \u2014 to flag malicious intent even without known signatures.\n` +
+          `  \u2014 LSTM sequence analysis: Monitors process creation chains and file I/O patterns over time. This catches multi-stage attacks where individual actions appear benign but the sequence reveals malicious intent (e.g., document \u2192 macro \u2192 PowerShell \u2192 download \u2192 execute).\n` +
+          `  \u2014 Signature matching: YARA rules (${Math.floor(Math.random() * 500 + 2000)} rules, updated ${Math.floor(Math.random() * 4 + 1)}h ago) and Snort/Suricata network signatures provide fast detection of known threats.\n` +
+          `  \u2014 Heuristic/entropy analysis: Identifies packed, encrypted, or obfuscated payloads by measuring file entropy. High entropy sections in executables often indicate evasion techniques.\n\n` +
+          (isRansomware
+            ? `Ransomware-specific monitoring:\n` +
+              `  \u2014 File encryption velocity: rapid file modification patterns detected via I/O hooks\n` +
+              `  \u2014 Shadow copy deletion: monitoring vssadmin/wmic for T1490 (Inhibit System Recovery)\n` +
+              `  \u2014 Ransom note creation: filesystem watchers for known ransom note filenames\n` +
+              `  \u2014 Network propagation: SMB/RDP lateral spread detected via ADA network baseline\n\n`
+            : '') +
+          `MITRE ATT&CK coverage:\n` +
+          `  \u2014 T1059 (Command & Scripting Execution) \u2014 PowerShell, cmd, WMI abuse\n` +
+          `  \u2014 T1547 (Boot/Logon Autostart) \u2014 persistence via registry, startup folder\n` +
+          `  \u2014 T1486 (Data Encrypted for Impact) \u2014 ransomware encryption activity\n` +
+          `  \u2014 T1490 (Inhibit System Recovery) \u2014 backup/shadow copy destruction\n` +
+          `  \u2014 T1027 (Obfuscated Files) \u2014 packed/encoded payloads\n\n` +
+          `Last 24h activity: ${Math.floor(Math.random() * 5 + 2)} samples detonated in sandbox, ${Math.floor(Math.random() * 3)} quarantined. IOC extraction (file hashes, C2 IPs, mutex names) auto-fed to TAA for threat intel correlation.\n\n` +
+          `Related topics: "lateral movement" \u00B7 "C2 beacons" \u00B7 "sandbox results" \u00B7 "EDR"`;
       }
 
       // EDR / endpoint / UEBA / behavioral
       if (/edr|endpoint\s*detect|ueba|behavio(u?)ral\s*analyt/i.test(message)) {
-        return `Endpoint & Behavioral Analytics:\n` +
-          `\u2022 EDR integration: active (telemetry from ${Math.floor(Math.random() * 500 + 200)} endpoints)\n` +
-          `\u2022 UEBA baselines: per-user activity profiles (30-day rolling)\n` +
-          `\u2022 Behavioral indicators monitored:\n` +
-          `  \u2014 Unusual process trees (parent-child anomalies)\n` +
-          `  \u2014 Off-hours access patterns (current: ${offHours ? 'OFF-HOURS \u2014 elevated sensitivity' : 'business hours'})\n` +
-          `  \u2014 Data volume anomalies (upload/download deviations)\n` +
-          `  \u2014 Privilege escalation attempts\n` +
-          `  \u2014 Lateral movement sequences\n` +
-          `\u2022 Top UEBA anomaly: ${alerts[0] ? `${alerts[0].mitreId} confidence ${alerts[0].confidence}%` : 'none active'}\n` +
-          `\u2022 Model: Isolation Forest for point anomalies + LSTM for sequence detection`;
+        return `Endpoint Detection & Response (EDR) / User Entity Behavioral Analytics (UEBA):\n\n` +
+          `EDR and UEBA work together to create a comprehensive behavioral picture of what's happening across your environment. While traditional security looks for known bad signatures, behavioral analytics identifies deviations from normal patterns \u2014 catching novel attacks that evade signature-based tools.\n\n` +
+          `EDR Telemetry:\n` +
+          `  \u2014 Active endpoints reporting: ${Math.floor(Math.random() * 500 + 200)}\n` +
+          `  \u2014 Data collected: process creation, file modifications, network connections, registry changes, loaded DLLs, DNS queries\n` +
+          `  \u2014 ADA's Isolation Forest model scores each event stream for anomalies against the endpoint's own 30-day behavioral baseline\n\n` +
+          `UEBA Behavioral Indicators:\n` +
+          `  \u2014 Unusual process trees: parent-child relationships that deviate from baseline (e.g., Excel spawning PowerShell spawning cmd.exe \u2014 classic macro attack chain)\n` +
+          `  \u2014 Off-hours access: ${offHours ? 'CURRENTLY OFF-HOURS \u2014 sensitivity elevated 1.3\u00D7. Any privileged access triggers immediate alert.' : 'Business hours \u2014 standard sensitivity. Off-hours access would trigger elevated scoring.'}\n` +
+          `  \u2014 Data volume anomalies: upload/download volumes compared to user's 30-day rolling average. A user suddenly exfiltrating 10\u00D7 their normal volume is flagged regardless of destination.\n` +
+          `  \u2014 Privilege escalation: sudo/runas usage, token manipulation, UAC bypass attempts\n` +
+          `  \u2014 Lateral movement: unusual authentication to new hosts, RDP/SSH to systems outside normal scope\n\n` +
+          `Top UEBA anomaly: ${alerts[0] ? `${alerts[0].mitreId} \u2013 ${alerts[0].mitreName} (confidence: ${alerts[0].confidence}%)` : 'No active anomalies'}\n\n` +
+          `Detection model: Isolation Forest identifies point anomalies (single unusual events) while LSTM captures sequence anomalies (chains of events that individually appear normal but collectively indicate attack progression).\n\n` +
+          `Related topics: "malware" \u00B7 "lateral movement" \u00B7 "insider threat"`;
       }
 
       // DDoS / botnet / C2
@@ -412,17 +429,21 @@ function generateAgentResponse(agent: GatraAgentDef, message: string): string {
       if (/apt[\s-]?\d+|threat\s*actor|adversar|nation[\s-]?state|cyber\s*espionage|attribution/i.test(message)) {
         const aptMatch = message.match(/apt[\s-]?\d+/i);
         const techniques = [...new Set(alerts.map(a => a.mitreId))].slice(0, 4);
-        return `Threat Actor Intelligence:\n` +
-          (aptMatch ? `\u2022 Queried: ${aptMatch[0].toUpperCase()} \u2014 known TTPs cross-referenced with active alerts\n` : '') +
-          `\u2022 Active alert TTPs: ${techniques.join(', ') || 'N/A'}\n` +
-          `\u2022 Attribution confidence: LOW (multiple actors share these techniques)\n` +
-          `\u2022 Known groups using similar TTPs:\n` +
-          `  \u2014 APT-29 (Cozy Bear): T1566, T1059, T1071\n` +
-          `  \u2014 APT-41 (Double Dragon): T1190, T1053, T1055\n` +
-          `  \u2014 Lazarus Group: T1486, T1490, T1027\n` +
-          `\u2022 Intel sources: MITRE ATT&CK, CISA advisories, open-source CTI feeds\n` +
-          `\u2022 Recommendation: correlate IOCs with threat intel platform before attribution\n` +
-          `Ask: "IOC correlation" \u00B7 "campaign analysis" \u00B7 "dark web"`;
+        return `Advanced Persistent Threat (APT) Intelligence:\n\n` +
+          `APTs are sophisticated, well-funded adversaries (often nation-state backed) that maintain long-term access to targets for espionage, sabotage, or financial gain. Unlike opportunistic attackers, APTs use custom tooling, patience, and operational security to avoid detection.\n\n` +
+          (aptMatch
+            ? `Queried: ${aptMatch[0].toUpperCase()}\n` +
+              `TAA has cross-referenced this group's known TTPs against your active alerts to identify potential overlap. Attribution in cybersecurity is inherently uncertain \u2014 multiple groups share tools and infrastructure.\n\n`
+            : '') +
+          `Active alert TTPs: ${techniques.join(', ') || 'No active alerts'}\n\n` +
+          `Known threat groups with similar TTPs:\n` +
+          `  \u2014 APT-29 (Cozy Bear / Russia): Specializes in espionage. Known for T1566 (spearphishing), T1059 (PowerShell), T1071 (web protocols for C2). Targets government and diplomatic entities. Used supply chain attacks (SolarWinds).\n` +
+          `  \u2014 APT-41 (Double Dragon / China): Dual espionage + financial crime. Uses T1190 (exploit public apps), T1053 (scheduled tasks), T1055 (process injection). Targets healthcare, telecoms, and tech sectors.\n` +
+          `  \u2014 Lazarus Group (North Korea): Financial motivation + destructive capability. Known for T1486 (ransomware), T1490 (inhibit recovery), T1027 (obfuscation). Responsible for WannaCry, SWIFT bank heists.\n` +
+          `  \u2014 Sandworm (Russia/GRU): Critical infrastructure focus. NotPetya, Industroyer/CrashOverride. Targets energy, government.\n\n` +
+          `Attribution confidence: LOW \u2014 multiple actors share similar techniques. True attribution requires corroborating IOCs (infrastructure, malware families, victimology) with classified intelligence. Avoid premature attribution in incident reports.\n\n` +
+          `Intel sources: MITRE ATT&CK, CISA advisories, open-source CTI feeds, vendor threat reports, information sharing organizations (ISACs).\n\n` +
+          `Related topics: "IOC correlation" \u00B7 "campaign analysis" \u00B7 "dark web" \u00B7 "zero-day"`;
       }
 
       // IOC / indicator of compromise / threat intel feed
@@ -441,18 +462,35 @@ function generateAgentResponse(agent: GatraAgentDef, message: string): string {
       // Phishing / social engineering / BEC
       if (/phish|spear\s*phish|social\s*engineer|bec|business\s*email/i.test(message)) {
         const phishAlerts = alerts.filter(a => /T1566|T1534|T1598/i.test(a.mitreId));
-        return `Phishing & Social Engineering Analysis:\n` +
-          `\u2022 Phishing-related alerts: ${phishAlerts.length}\n` +
-          `\u2022 Detection layers:\n` +
-          `  \u2014 Email gateway: SPF/DKIM/DMARC validation\n` +
-          `  \u2014 URL reputation + sandbox detonation\n` +
-          `  \u2014 NLP analysis: urgency/authority language patterns\n` +
-          `  \u2014 Attachment analysis: macro detection + entropy scoring\n` +
-          `\u2022 MITRE: T1566 (Phishing), T1534 (Internal Spearphishing), T1598 (Phishing for Info)\n` +
-          `\u2022 BEC indicators: domain lookalikes, reply-to mismatch, wire transfer keywords\n` +
-          `\u2022 Last 24h: ${Math.floor(Math.random() * 20 + 5)} phishing attempts blocked\n` +
-          `\u2022 User click rate: ${(1.5 + Math.random() * 3).toFixed(1)}% (target: <2%)\n` +
-          `Ask CLA about "security awareness training" metrics.`;
+        const isSpearPhish = /spear/i.test(message);
+        const isBEC = /bec|business\s*email/i.test(message);
+        return `Phishing & Social Engineering Threat Analysis:\n\n` +
+          `Phishing remains the #1 initial access vector in most breaches. TAA analyzes phishing threats across the full attack chain \u2014 from email delivery to credential harvesting to post-compromise lateral movement.\n\n` +
+          `Active phishing-related alerts: ${phishAlerts.length}\n\n` +
+          `Detection layers (defense in depth):\n` +
+          `  1. Email Gateway: SPF/DKIM/DMARC validation prevents domain spoofing. Emails failing authentication are quarantined or tagged. Header analysis detects reply-to mismatches and display name deception.\n` +
+          `  2. URL Analysis: Every link is checked against reputation databases and detonated in a sandbox. Time-delayed phishing (links that become malicious after delivery) is caught by periodic re-scanning.\n` +
+          `  3. NLP/AI Analysis: Natural language processing identifies social engineering patterns \u2014 urgency ("your account will be locked"), authority ("CEO requests"), and emotional manipulation ("verify immediately").\n` +
+          `  4. Attachment Analysis: Office macros, embedded scripts, and high-entropy payloads are flagged. PDF exploits and polyglot files are sandbox-detonated before delivery.\n\n` +
+          (isSpearPhish
+            ? `Spear phishing specifics:\n` +
+              `  Unlike mass phishing, spear phishing targets specific individuals using OSINT-gathered personal details (LinkedIn, company website, social media). TAA correlates sender reputation with target's role to assess risk \u2014 a "CEO" emailing finance about wire transfers gets highest priority.\n\n`
+            : '') +
+          (isBEC
+            ? `Business Email Compromise (BEC) indicators:\n` +
+              `  \u2014 Domain lookalikes: company-name vs. c0mpany-name (homoglyph detection)\n` +
+              `  \u2014 Display name spoofing: "CEO Name" from external domain\n` +
+              `  \u2014 Wire transfer / payment keywords in body\n` +
+              `  \u2014 Conversation hijacking: thread injection after mailbox compromise\n` +
+              `  \u2014 Financial loss from BEC attacks averages $125K per incident (FBI IC3 data)\n\n`
+            : '') +
+          `MITRE ATT&CK mapping:\n` +
+          `  \u2014 T1566.001 \u2013 Spearphishing Attachment\n` +
+          `  \u2014 T1566.002 \u2013 Spearphishing Link\n` +
+          `  \u2014 T1534 \u2013 Internal Spearphishing (post-compromise)\n` +
+          `  \u2014 T1598 \u2013 Phishing for Information (reconnaissance)\n\n` +
+          `Last 24h: ${Math.floor(Math.random() * 20 + 5)} phishing attempts blocked at gateway. User click rate: ${(1.5 + Math.random() * 3).toFixed(1)}% (organizational target: <2%).\n\n` +
+          `Related topics: "security awareness training" (CLA) \u00B7 "credential stuffing" \u00B7 "APT" \u00B7 "dark web"`;
       }
 
       // Campaign / TTP / dark web / underground
@@ -587,17 +625,21 @@ function generateAgentResponse(agent: GatraAgentDef, message: string): string {
 
       // Zero trust / ZTNA / least privilege
       if (/zero\s*trust|least\s*privilege|ztna/i.test(message)) {
-        return `Zero Trust Architecture Status:\n` +
-          `\u2022 Principles enforced:\n` +
-          `  \u2014 Never trust, always verify: all requests authenticated\n` +
-          `  \u2014 Least privilege: RBAC + just-in-time access\n` +
-          `  \u2014 Assume breach: microsegmentation + continuous monitoring\n` +
-          `\u2022 Identity verification: MFA enforced for all access tiers\n` +
-          `\u2022 Device posture: endpoint health check before network access\n` +
-          `\u2022 Network access: ZTNA broker (no direct exposure)\n` +
-          `\u2022 Data protection: encryption in transit + at rest\n` +
-          `\u2022 Continuous evaluation: session risk scoring (ADA + TAA models)\n` +
-          `\u2022 Maturity: Level 3/5 (Advanced \u2014 targeting Optimal)`;
+        return `Zero Trust Architecture (ZTA):\n\n` +
+          `Zero Trust is a security model that eliminates implicit trust. Instead of assuming anything inside the network perimeter is safe, every access request is fully authenticated, authorized, and encrypted regardless of where it originates.\n\n` +
+          `Core principles in our environment:\n` +
+          `  1. "Never trust, always verify" \u2014 Every request is treated as if it originates from an untrusted network. Identity is verified through MFA + device posture + behavioral context before granting access.\n` +
+          `  2. "Least privilege access" \u2014 Users and services receive the minimum permissions needed. RBAC defines baseline roles, and just-in-time (JIT) elevation provides temporary access for privileged operations with automatic expiry.\n` +
+          `  3. "Assume breach" \u2014 The architecture assumes adversaries are already inside the network. Microsegmentation limits blast radius, and ADA + TAA continuously monitor for anomalous behavior.\n\n` +
+          `Implementation status:\n` +
+          `  \u2014 Identity verification: MFA enforced across all access tiers (hardware keys for privileged)\n` +
+          `  \u2014 Device posture: endpoints must pass health checks (patched OS, active EDR, disk encryption) before network access is granted via ZTNA broker\n` +
+          `  \u2014 Network access: Zero Trust Network Access (ZTNA) broker replaces traditional VPN. No direct network exposure \u2014 applications are invisible to unauthorized users.\n` +
+          `  \u2014 Data protection: AES-256 encryption at rest, TLS 1.3 in transit\n` +
+          `  \u2014 Continuous evaluation: ADA + TAA provide real-time session risk scoring. Sessions can be terminated mid-stream if risk score exceeds threshold.\n\n` +
+          `Maturity assessment: Level 3 of 5 (Advanced). Key gaps: complete microsegmentation of legacy OT networks, and full adoption of ZTNA for all third-party vendor access.\n\n` +
+          `Reference: NIST SP 800-207 (Zero Trust Architecture)\n\n` +
+          `Related topics: "firewall rules" \u00B7 "MFA" \u00B7 "IAM" \u00B7 "network segmentation"`;
       }
 
       // SOAR / orchestration / automated response
@@ -920,20 +962,35 @@ function generateAgentResponse(agent: GatraAgentDef, message: string): string {
 
       // Penetration testing / red team / blue team / purple team
       if (/pen[\s-]?test|penetration\s*test|red\s*team|blue\s*team|purple\s*team/i.test(message)) {
-        return `Penetration Testing & Team Exercises:\n` +
-          `\u2022 Last pentest: ${Math.floor(Math.random() * 60 + 14)} days ago\n` +
-          `\u2022 Scope: external perimeter + internal network + web apps\n` +
-          `\u2022 Findings: ${Math.floor(Math.random() * 8 + 2)} vulnerabilities\n` +
-          `  \u2014 Critical: ${Math.floor(Math.random() * 2)} | High: ${Math.floor(Math.random() * 3 + 1)} | Medium: ${Math.floor(Math.random() * 4 + 1)}\n` +
-          `\u2022 Red team operations:\n` +
-          `  \u2014 Objective-based: simulate APT lifecycle\n` +
-          `  \u2014 Social engineering included\n` +
-          `  \u2014 Physical security testing (badge cloning, tailgating)\n` +
-          `\u2022 Blue team (defensive):\n` +
-          `  \u2014 GATRA agents provide automated detection + response\n` +
-          `  \u2014 Detection rate last exercise: ${(70 + Math.random() * 25).toFixed(0)}%\n` +
-          `\u2022 Purple team: joint exercises to improve detection rules\n` +
-          `\u2022 CVE correlation: ${cves.length} CVEs in feed for validation`;
+        const isRedTeam = /red\s*team/i.test(message);
+        const isBlueTeam = /blue\s*team/i.test(message);
+        const isPurple = /purple/i.test(message);
+        return `Penetration Testing & Security Team Exercises:\n\n` +
+          `Penetration testing simulates real-world attacks against your systems to identify vulnerabilities before adversaries do. Unlike vulnerability scanning (which is automated), pentesting involves human creativity to chain vulnerabilities and demonstrate actual business impact.\n\n` +
+          `Last engagement: ${Math.floor(Math.random() * 60 + 14)} days ago\n` +
+          `Scope: external perimeter + internal network + web applications + API endpoints\n` +
+          `Findings: ${Math.floor(Math.random() * 8 + 2)} vulnerabilities identified\n\n` +
+          (isRedTeam || (!isBlueTeam && !isPurple)
+            ? `Red Team (Offensive):\n` +
+              `  Red team operations go beyond traditional pentesting by simulating a full APT lifecycle \u2014 reconnaissance, initial access, persistence, lateral movement, and objective completion. The goal is to test the organization's detection and response capabilities end-to-end.\n` +
+              `  \u2014 Objective-based: "exfiltrate customer database" rather than "find vulnerabilities"\n` +
+              `  \u2014 Social engineering: phishing campaigns, phone pretexting, LinkedIn reconnaissance\n` +
+              `  \u2014 Physical security: badge cloning, tailgating, dumpster diving\n` +
+              `  \u2014 Duration: typically 2-4 weeks to simulate persistent adversary\n\n`
+            : '') +
+          (isBlueTeam || (!isRedTeam && !isPurple)
+            ? `Blue Team (Defensive):\n` +
+              `  The blue team's mission is to detect and respond to attacks. GATRA agents augment the blue team by providing AI-powered detection (ADA), automated triage (TAA), and rapid containment (CRA).\n` +
+              `  \u2014 Detection rate in last exercise: ${(70 + Math.random() * 25).toFixed(0)}%\n` +
+              `  \u2014 Mean time to detect (MTTD): ${Math.floor(Math.random() * 30 + 5)} minutes\n` +
+              `  \u2014 Mean time to respond (MTTR): ${Math.floor(Math.random() * 20 + 3)} minutes\n\n`
+            : '') +
+          (isPurple || (!isRedTeam && !isBlueTeam)
+            ? `Purple Team (Collaborative):\n` +
+              `  Purple teaming combines red and blue in real-time collaboration. The red team executes specific techniques while the blue team attempts to detect them. When detection fails, both teams work together to create new detection rules \u2014 directly improving security posture.\n\n`
+            : '') +
+          `CVE correlation: ${cves.length} CVEs in current feed available for validation testing.\n\n` +
+          `Related topics: "OWASP" \u00B7 "cloud security" \u00B7 "vulnerability scan" \u00B7 "bug bounty"`;
       }
 
       // Cloud security / misconfiguration / CSPM
@@ -1064,19 +1121,21 @@ function generateGeneralCyberResponse(message: string): string | null {
 
   // MFA / authentication / identity
   if (/mfa|multi[\s-]?factor|two[\s-]?factor|2fa|authentication/i.test(message)) {
-    return `SOC Knowledge Base \u2014 Multi-Factor Authentication:\n` +
-      `\u2022 MFA types (strongest to weakest):\n` +
-      `  1. Hardware security keys (FIDO2/WebAuthn) \u2014 phishing-resistant\n` +
-      `  2. Authenticator apps (TOTP) \u2014 time-based codes\n` +
-      `  3. Push notifications \u2014 convenient but MFA fatigue risk\n` +
-      `  4. SMS codes \u2014 vulnerable to SIM swap\n` +
-      `\u2022 Best practices:\n` +
-      `  \u2014 Enforce MFA for all users, especially privileged accounts\n` +
-      `  \u2014 Use phishing-resistant MFA for high-value targets\n` +
-      `  \u2014 Monitor for MFA bypass attempts (TAA tracks these)\n` +
-      `  \u2014 Implement number-matching for push MFA\n` +
-      `\u2022 GATRA context: identity-based attacks detected by ADA + TAA\n` +
-      `Ask TAA about "credential stuffing" or "brute force" for active threats.`;
+    return `SOC Knowledge Base \u2014 Multi-Factor Authentication (MFA):\n\n` +
+      `MFA is the single most effective control against account compromise. It requires users to present two or more verification factors: something they know (password), something they have (phone/key), or something they are (biometric). Even if credentials are stolen via phishing or data breach, MFA prevents unauthorized access.\n\n` +
+      `MFA methods ranked by security (strongest to weakest):\n` +
+      `  1. Hardware security keys (FIDO2/WebAuthn): Phishing-resistant by design. The key cryptographically verifies the website's domain, so fake login pages can't capture the token. Google reported zero successful phishing attacks on employees after deploying hardware keys. Recommended for administrators and high-value targets.\n` +
+      `  2. Authenticator apps (TOTP): Generate time-based one-time passwords that change every 30 seconds. Resistant to SIM swap attacks (unlike SMS) but can be phished if the user enters the code on a fake site. Google Authenticator, Microsoft Authenticator, Authy are common choices.\n` +
+      `  3. Push notifications: Convenient \u2014 user taps "approve" on their phone. However, vulnerable to MFA fatigue attacks (Uber breach 2022) where attackers spam push requests until the user approves out of frustration. Mitigate with number-matching (user must type a displayed number).\n` +
+      `  4. SMS codes: Weakest MFA option. Vulnerable to SIM swap attacks, SS7 network interception, and social engineering of carrier support. Still better than no MFA, but should be phased out for sensitive systems.\n\n` +
+      `Best practices:\n` +
+      `  \u2014 Enforce MFA organization-wide, not just for VPN or email\n` +
+      `  \u2014 Use phishing-resistant MFA (FIDO2) for privileged accounts\n` +
+      `  \u2014 Implement number-matching for push-based MFA to prevent fatigue attacks\n` +
+      `  \u2014 Monitor for MFA bypass attempts \u2014 TAA tracks authentication anomalies\n` +
+      `  \u2014 Have break-glass procedures for MFA lockouts (secured recovery codes)\n\n` +
+      `GATRA context: ADA detects unusual authentication patterns, TAA triages identity-based alerts, CRA can suspend compromised accounts.\n\n` +
+      `Related topics: "zero trust" (CRA) \u00B7 "credential stuffing" (TAA) \u00B7 "IAM"`;
   }
 
   // IAM / identity / access control / RBAC
@@ -1154,37 +1213,40 @@ function generateGeneralCyberResponse(message: string): string | null {
 
   // IoT / SCADA / ICS / OT security
   if (/iot|scada|ics|ot\s*secur|industrial\s*control/i.test(message)) {
-    return `SOC Knowledge Base \u2014 IoT / OT / ICS Security:\n` +
-      `\u2022 OT/ICS monitoring:\n` +
-      `  \u2014 Protocol analysis: Modbus, DNP3, OPC-UA, BACnet\n` +
-      `  \u2014 Anomaly detection: baseline process behavior (ADA)\n` +
-      `  \u2014 Network segmentation: IT/OT boundary enforced\n` +
-      `\u2022 IoT security challenges:\n` +
-      `  \u2014 Legacy devices: no patching capability\n` +
-      `  \u2014 Default credentials: scanned and flagged\n` +
-      `  \u2014 Unencrypted protocols: traffic inspection\n` +
-      `  \u2014 Physical safety implications: CRA requires manual approval for OT actions\n` +
-      `\u2022 Frameworks: NIST SP 800-82, IEC 62443\n` +
-      `\u2022 MITRE: ICS ATT&CK matrix used for OT-specific technique mapping\n` +
-      `\u2022 GATRA: OT alerts treated as critical by default (safety-first)`;
+    return `SOC Knowledge Base \u2014 IoT / OT / ICS Security:\n\n` +
+      `Operational Technology (OT) and Industrial Control Systems (ICS) present unique cybersecurity challenges because attacks can cause physical damage, environmental harm, or endanger human safety. Unlike IT systems where confidentiality is often paramount, OT prioritizes availability and safety above all else.\n\n` +
+      `OT/ICS Monitoring:\n` +
+      `  \u2014 Protocol analysis: Industrial protocols (Modbus, DNP3, OPC-UA, BACnet, EtherNet/IP) are monitored for anomalous commands. A "write to PLC" command outside a maintenance window triggers an immediate alert.\n` +
+      `  \u2014 Anomaly detection: ADA maintains behavioral baselines for process control systems. Deviations in setpoints, sensor readings, or communication patterns indicate potential manipulation.\n` +
+      `  \u2014 IT/OT boundary: Strict network segmentation with unidirectional gateways where possible. The Purdue Model defines zones from Enterprise (Level 5) down to Physical Process (Level 0).\n\n` +
+      `IoT Security Challenges:\n` +
+      `  \u2014 Legacy devices: Many ICS components run for 15-20 years with no patching capability. Compensating controls (network isolation, virtual patching via IPS) are essential.\n` +
+      `  \u2014 Default credentials: Shodan-style scans regularly discover internet-exposed ICS with factory-default passwords. Credential auditing is critical.\n` +
+      `  \u2014 Unencrypted protocols: Most legacy ICS protocols have no built-in encryption or authentication. Network monitoring and segmentation are the primary defenses.\n` +
+      `  \u2014 Safety implications: Unlike IT, a wrong containment action in OT can cause physical harm. CRA requires explicit human approval for any OT-related response action.\n\n` +
+      `Notable incidents: Stuxnet (Iran nuclear), Industroyer/CrashOverride (Ukraine power grid), Triton/TRISIS (Saudi petrochemical safety systems), Colonial Pipeline (ransomware disrupting fuel supply).\n\n` +
+      `Frameworks: NIST SP 800-82 (ICS Security), IEC 62443 (Industrial Automation), MITRE ICS ATT&CK matrix.\n\n` +
+      `GATRA policy: All OT-related alerts are elevated to critical severity by default (safety-first approach).\n\n` +
+      `Related topics: "SCADA" \u00B7 "network segmentation" (CRA) \u00B7 "zero trust" \u00B7 "asset inventory" (RVA)`;
   }
 
   // Insider threat / DLP / data loss prevention
   if (/insider\s*threat|privilege.*abus|data\s*loss\s*prevent|dlp/i.test(message)) {
-    return `SOC Knowledge Base \u2014 Insider Threat & DLP:\n` +
-      `\u2022 Insider threat indicators:\n` +
-      `  \u2014 Unusual data access volume (UEBA baseline deviation)\n` +
-      `  \u2014 Off-hours access to sensitive systems\n` +
-      `  \u2014 Mass file downloads or email forwarding\n` +
-      `  \u2014 Accessing systems outside job scope\n` +
-      `  \u2014 Resignation + data access spike correlation\n` +
-      `\u2022 DLP controls:\n` +
-      `  \u2014 Endpoint DLP: USB, print, clipboard monitoring\n` +
-      `  \u2014 Network DLP: email, web upload, cloud sync\n` +
-      `  \u2014 Cloud DLP: SaaS app data sharing policies\n` +
-      `  \u2014 Classification: PII, PHI, financial, IP tagging\n` +
-      `\u2022 GATRA: ADA UEBA detects behavioral anomalies\n` +
-      `\u2022 Response: CRA can suspend account + CLA logs for legal hold`;
+    return `SOC Knowledge Base \u2014 Insider Threat & Data Loss Prevention:\n\n` +
+      `Insider threats are among the most challenging security risks because the adversary already has legitimate access. Insiders can be malicious (disgruntled employees, corporate espionage), negligent (accidental data exposure), or compromised (credentials stolen by external attacker). According to the Ponemon Institute, insider incidents cost an average of $15.4M annually per organization.\n\n` +
+      `Behavioral indicators (detected by ADA's UEBA engine):\n` +
+      `  \u2014 Unusual data access volume: A user downloading 50\u00D7 their normal file volume triggers an anomaly score. UEBA compares against the individual's 30-day rolling baseline, not just org-wide averages.\n` +
+      `  \u2014 Off-hours access: Accessing sensitive systems outside normal working patterns, especially combined with other indicators.\n` +
+      `  \u2014 Mass file operations: Bulk downloads, email forwarding to personal accounts, or large archive creation before departing the company.\n` +
+      `  \u2014 Scope creep: Accessing systems, databases, or network segments outside the user's job function.\n` +
+      `  \u2014 Resignation correlation: HR departure events cross-referenced with access patterns \u2014 a 2-week notice period with sudden data access spikes is a high-priority indicator.\n\n` +
+      `Data Loss Prevention (DLP) controls:\n` +
+      `  \u2014 Endpoint DLP: Monitors and controls USB transfers, print jobs, clipboard operations, and screen captures. Prevents sensitive data from leaving managed endpoints.\n` +
+      `  \u2014 Network DLP: Inspects email attachments, web uploads, and cloud sync traffic for sensitive content (PII, PHI, financial data, source code). Can block or quarantine in real-time.\n` +
+      `  \u2014 Cloud DLP: Monitors SaaS application sharing permissions (Google Drive, SharePoint, Slack). Prevents "share with anyone with the link" on sensitive files.\n` +
+      `  \u2014 Data classification: Automated tagging of PII, PHI, financial records, and intellectual property. Classification drives DLP policy enforcement \u2014 "CONFIDENTIAL" files can't be emailed externally.\n\n` +
+      `GATRA integration: ADA detects behavioral anomalies, TAA triages based on risk context, CRA can suspend accounts and isolate endpoints, CLA preserves evidence for legal hold.\n\n` +
+      `Related topics: "UEBA" (ADA) \u00B7 "forensics" (CLA) \u00B7 "zero trust" (CRA) \u00B7 "compliance"`;
   }
 
   // API security / OAuth / JWT
