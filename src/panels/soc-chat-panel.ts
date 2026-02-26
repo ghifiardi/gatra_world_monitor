@@ -314,7 +314,7 @@ function injectCSS(): void {
 /* SOC Chat slide-out */
 .soc-chat-overlay {
   position: fixed; top: 0; left: 0; right: 0; bottom: 0;
-  background: rgba(0,0,0,0.4); z-index: 1000;
+  background: rgba(0,0,0,0.4); z-index: 2147483646;
   opacity: 0; pointer-events: none;
   transition: opacity 0.25s ease;
 }
@@ -323,12 +323,12 @@ function injectCSS(): void {
 .soc-chat-drawer {
   position: fixed; top: 0; right: 0;
   width: 420px; max-width: 90vw;
-  height: 100dvh; height: 100vh; /* fallback for older browsers */
+  height: 100dvh; height: 100vh;
   background: #0d0d0d; border-left: 1px solid #2a2a2a;
   display: flex; flex-direction: column;
   transform: translateX(100%);
   transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  z-index: 1001;
+  z-index: 2147483647;
   font-family: 'SF Mono','Monaco','Cascadia Code','Fira Code',monospace;
   box-sizing: border-box;
 }
