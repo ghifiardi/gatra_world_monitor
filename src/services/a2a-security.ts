@@ -72,6 +72,14 @@ const GATRA_AGENTS = ['gatra-ada', 'gatra-taa', 'gatra-cra', 'gatra-cla', 'gatra
 
 const EXTERNAL_AGENTS: RegisteredAgent[] = [
   {
+    cardId: 'gatra-soc', name: 'gatra-cyber-soc', provider: 'GATRA Research',
+    url: 'https://worldmonitor-gatra.vercel.app/.well-known/agent.json',
+    skills: ['anomaly_detection', 'triage_analysis', 'containment_response', 'continuous_learning', 'reporting_visualization', 'ioc_lookup'],
+    status: 'verified', trustScore: 100, signatureValid: true,
+    firstSeen: Date.now() - 120 * 86400000, lastInteraction: Date.now() - 5000,
+    totalInteractions: 48200, anomalyCount: 0, region: 'ID',
+  },
+  {
     cardId: 'ext-001', name: 'sentinel-edr', provider: 'Microsoft',
     url: 'https://sentinel.azure.com/a2a',
     skills: ['endpoint_telemetry', 'threat_detection', 'incident_response'],
@@ -265,7 +273,7 @@ export function generateTrafficEvent(): A2aTrafficEvent {
   return {
     id: uid(), timestamp: Date.now(),
     sourceAgent: randomFrom(GATRA_AGENTS),
-    targetAgent: randomFrom(['threat-intel-darkweb', 'crowdstrike-falcon']),
+    targetAgent: randomFrom(['threat-intel-darkweb', 'crowdstrike-falcon', 'gatra-cyber-soc']),
     direction: 'outbound',
     skill: randomFrom(OUTBOUND_SKILLS),
     verdict: 'clean',

@@ -93,6 +93,13 @@ function injectCSS(): void {
   min-width: 22px; text-align: right;
   font-weight: 700; font-size: 10px; font-family: 'SF Mono', monospace;
 }
+.a2a-trust-self { background: rgba(34,197,94,0.06); border-radius: 2px; padding: 1px 2px; }
+.a2a-trust-self .a2a-trust-name { color: #22c55e; font-weight: 600; }
+.a2a-card-link {
+  font-size: 9px; color: #3b82f6; text-decoration: none;
+  font-family: 'SF Mono', monospace; display: block; padding: 3px 0 0;
+}
+.a2a-card-link:hover { text-decoration: underline; }
 
 /* Traffic feed */
 .a2a-traffic {
@@ -344,6 +351,15 @@ export class A2aSecurityPanel extends Panel {
         h('span', { className: 'a2a-reg-count', style: 'color: #ef4444' }, String(c.blocked + c.degraded)),
         h('span', null, `Blocked/Degraded ${statusIcon('blocked')}`),
       ),
+      (() => {
+        const link = h('a', {
+          className: 'a2a-card-link',
+          href: 'https://worldmonitor-gatra.vercel.app/.well-known/agent.json',
+          target: '_blank',
+          rel: 'noopener noreferrer',
+        }, '\uD83D\uDCCB GATRA Agent Card \u2197');
+        return link;
+      })(),
     );
   }
 
@@ -359,9 +375,10 @@ export class A2aSecurityPanel extends Panel {
 
     for (const agent of agents) {
       const color = trustColor(agent.trustScore);
+      const isSelf = agent.cardId === 'gatra-soc';
       section.appendChild(
-        h('div', { className: 'a2a-trust-row' },
-          h('span', { className: 'a2a-trust-name' }, agent.name),
+        h('div', { className: `a2a-trust-row${isSelf ? ' a2a-trust-self' : ''}` },
+          h('span', { className: 'a2a-trust-name' }, `${isSelf ? '\u2B50 ' : ''}${agent.name}`),
           h('div', { className: 'a2a-trust-bar-outer' },
             h('div', { className: 'a2a-trust-bar-inner', style: `width: ${agent.trustScore}%; background: ${color};` }),
           ),
