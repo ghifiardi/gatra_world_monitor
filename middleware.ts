@@ -33,6 +33,11 @@ export default function middleware(request: Request) {
     return;
   }
 
+  // Allow any UA on A2A protocol endpoints (external agents use non-browser UAs)
+  if (path === '/api/a2a' || path.startsWith('/api/a2a/')) {
+    return;
+  }
+
   // Block bots from all API routes
   if (BOT_UA.test(ua)) {
     return new Response('{"error":"Forbidden"}', {
