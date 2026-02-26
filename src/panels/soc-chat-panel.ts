@@ -360,6 +360,7 @@ function injectCSS(): void {
 .soc-chat-msgs {
   flex: 1; overflow-y: auto; padding: 8px 12px;
   display: flex; flex-direction: column; gap: 2px;
+  justify-content: flex-end;
   scrollbar-width: thin; scrollbar-color: #333 transparent;
 }
 
