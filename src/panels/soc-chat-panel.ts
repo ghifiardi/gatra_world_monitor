@@ -321,14 +321,19 @@ function injectCSS(): void {
 .soc-chat-overlay.open { opacity: 1; pointer-events: all; }
 
 .soc-chat-drawer {
-  position: fixed; top: 0; right: 0; bottom: 0;
+  position: fixed; top: 0; right: 0;
   width: 420px; max-width: 90vw;
+  height: 100dvh; height: 100vh; /* fallback for older browsers */
   background: #0d0d0d; border-left: 1px solid #2a2a2a;
   display: flex; flex-direction: column;
   transform: translateX(100%);
   transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   z-index: 1001;
   font-family: 'SF Mono','Monaco','Cascadia Code','Fira Code',monospace;
+  box-sizing: border-box;
+}
+@supports (height: 100dvh) {
+  .soc-chat-drawer { height: 100dvh; }
 }
 .soc-chat-overlay.open .soc-chat-drawer { transform: translateX(0); }
 
@@ -431,6 +436,7 @@ function injectCSS(): void {
 .soc-chat-input-area {
   padding: 8px 12px; border-top: 1px solid #2a2a2a;
   background: #111; flex-shrink: 0;
+  padding-bottom: max(8px, env(safe-area-inset-bottom, 8px));
 }
 .soc-chat-actions {
   display: flex; gap: 4px; margin-bottom: 6px;
