@@ -282,28 +282,18 @@ function generateAgentResponse(agent: GatraAgentDef, message: string): string {
 
     // ── CRA: Containment & Response Agent ─────────────────────────
     case 'cra': {
-      // What actions / what did you do / what happened / explain actions / about actions / list actions
-      if (/what.*(action|response|did|happen|do)|action|session.*about|about.*session|list|show|detail/i.test(message)) {
-        if (actions.length === 0) {
-          return `No containment actions executed in current session.\n` +
-            `\u2022 CRA is on standby monitoring ${alerts.length} active alerts\n` +
-            `\u2022 ${sev.critical} critical alerts may trigger auto-containment\n` +
-            `\u2022 Auto-response thresholds: severity \u2265 critical + confidence \u2265 90%\n` +
-            `Say "/block <ip>" to manually initiate containment.`;
-        }
-        const actionLines = actions.slice(0, 8).map(a =>
-          `\u2022 ${a.timestamp.toISOString().substring(11, 16)} UTC \u2014 ${a.action} \u2192 ${a.target}`
-        );
-        return `Containment actions this session (${actions.length} total):\n` +
-          actionLines.join('\n') +
-          `\n\u2022 All actions policy-compliant (SOC-POL-2026-001)\n` +
-          `\u2022 Rollback available for last ${Math.min(actions.length, 5)} actions\n` +
-          `\u2022 CLA audit trail: active\n` +
-          `Commands: "/block <ip>" \u00B7 "/hold <target>" \u00B7 "/rollback"`;
+      // Rollback / undo / revert (check first — explicit command)
+      if (/rollback|undo|revert/i.test(message)) {
+        if (actions.length === 0) return 'No actions to rollback. Session is clean.';
+        const last = actions[actions.length - 1]!;
+        return `\u26A0\uFE0F Rollback available:\n` +
+          `\u2022 Last action: ${last.action} \u2192 ${last.target} at ${last.timestamp.toISOString().substring(11, 16)} UTC\n` +
+          `\u2022 Rollbackable actions: ${Math.min(actions.length, 5)}\n` +
+          `Type "confirm rollback" to revert last action, or "cancel" to keep.`;
       }
 
-      // Hold / pause containment
-      if (/hold|pause|stop|suspend/i.test(message)) {
+      // Hold / pause (explicit command)
+      if (/(^|\s)(hold|pause|stop|suspend)\s/i.test(message) || /^(hold|pause|stop|suspend)$/i.test(message)) {
         const ipMatch = message.match(/\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}/);
         if (ipMatch) {
           return `\u23F8\uFE0F Containment HELD for ${ipMatch[0]}.\n` +
@@ -318,21 +308,11 @@ function generateAgentResponse(agent: GatraAgentDef, message: string): string {
           `\u2022 Say "release hold" to resume auto-response.`;
       }
 
-      // Rollback / undo / revert
-      if (/rollback|undo|revert/i.test(message)) {
-        if (actions.length === 0) return 'No actions to rollback. Session is clean.';
-        const last = actions[actions.length - 1]!;
-        return `\u26A0\uFE0F Rollback available:\n` +
-          `\u2022 Last action: ${last.action} \u2192 ${last.target} at ${last.timestamp.toISOString().substring(11, 16)} UTC\n` +
-          `\u2022 Rollbackable actions: ${Math.min(actions.length, 5)}\n` +
-          `Type "confirm rollback" to revert last action, or "cancel" to keep.`;
-      }
-
-      // Block / contain / isolate / quarantine
-      if (/block|contain|isolat|quarantin/i.test(message)) {
-        const ipMatch = message.match(/\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}/);
-        const target = ipMatch?.[0] ?? 'pending target';
-        return `\uD83D\uDEE1\uFE0F Containment initiated for ${target}:\n` +
+      // Block/isolate/quarantine — only when clearly an ACTION command (has IP or imperative)
+      // e.g. "block 10.0.0.1", "isolate this host", "quarantine the server"
+      if (/\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}/.test(message) && /(block|isolat|quarantin)/i.test(message)) {
+        const ipMatch = message.match(/\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}/)!;
+        return `\uD83D\uDEE1\uFE0F Containment initiated for ${ipMatch[0]}:\n` +
           `\u2022 Firewall rule: BLOCK ingress/egress\n` +
           `\u2022 Network segment: isolated\n` +
           `\u2022 Active sessions: terminated\n` +
@@ -341,25 +321,27 @@ function generateAgentResponse(agent: GatraAgentDef, message: string): string {
           `Say "hold containment" to pause or "rollback" to revert.`;
       }
 
-      // Status / ready / online
-      if (/status|ready|online|active|how.*you/i.test(message)) {
-        return `CRA Status:\n` +
+      // Inquiry about containment / actions / session / how many / numbers / what about
+      // This is the main inquiry handler — catches most conversational questions
+      const craStatusResponse = (): string => {
+        const actionLines = actions.slice(0, 8).map(a =>
+          `\u2022 ${a.timestamp.toISOString().substring(11, 16)} UTC \u2014 ${a.action} \u2192 ${a.target}`
+        );
+        return `CRA Containment Report:\n` +
           `\u2022 Mode: ${sev.critical > 0 ? 'ACTIVE RESPONSE' : 'STANDBY'}\n` +
-          `\u2022 Actions this session: ${actions.length}\n` +
-          `\u2022 Monitoring: ${alerts.length} alerts (${sev.critical} critical)\n` +
+          `\u2022 Total actions this session: ${actions.length}\n` +
+          `\u2022 Monitoring: ${alerts.length} alerts (${sev.critical} critical, ${sev.high} high)\n` +
           `\u2022 Auto-response: ${sev.critical > 0 ? 'ARMED' : 'standby'} (threshold: severity=critical, conf\u226590%)\n` +
+          (actions.length > 0
+            ? `\nRecent actions:\n${actionLines.join('\n')}\n`
+            : `\nNo containment actions executed yet.\n`) +
           `\u2022 Policy: SOC-POL-2026-001 compliant\n` +
-          `\u2022 Rollback window: last ${Math.min(actions.length, 5)} actions available\n` +
-          `Commands: /block \u00B7 /hold \u00B7 /release \u00B7 /rollback`;
-      }
+          `\u2022 Rollback window: ${actions.length > 0 ? `last ${Math.min(actions.length, 5)} actions available` : 'N/A'}\n` +
+          `Commands: /block <ip> \u00B7 /hold <target> \u00B7 /release \u00B7 /rollback`;
+      };
 
-      // Generic @cra — rich contextual fallback
-      return `CRA Containment Summary:\n` +
-        `\u2022 Session actions: ${actions.length} executed, all policy-compliant\n` +
-        `\u2022 Monitoring: ${sev.critical} critical / ${sev.high} high alerts\n` +
-        `\u2022 Mode: ${sev.critical > 0 ? 'ACTIVE \u2014 auto-containment armed for critical+90% conf' : 'STANDBY \u2014 awaiting escalation from TAA'}\n` +
-        `\u2022 Available: /block <ip> \u00B7 /hold <target> \u00B7 /rollback\n` +
-        `Ask: "what actions" \u00B7 "block <ip>" \u00B7 "hold containment" \u00B7 "rollback last"`;
+      // Generic @cra or any inquiry — always give rich report
+      return craStatusResponse();
     }
 
     // ── CLA: Compliance & Logging Agent ───────────────────────────
