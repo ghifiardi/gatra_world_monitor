@@ -9,6 +9,7 @@
 
 import { escapeHtml } from '@/utils/sanitize';
 import { getGatraSnapshot, getAlerts, getAgentStatus, getCRAActions } from '@/gatra/connector';
+import { getCachedCVEFeed } from '@/services/cve-feed';
 import type { GatraAlert } from '@/types';
 
 // ── Types ────────────────────────────────────────────────────────
@@ -102,10 +103,10 @@ const GATRA_AGENTS: GatraAgentDef[] = [
     role: 'Assesses vulnerability exposure',
     color: '#9c27b0', emoji: '\u26A0\uFE0F',
     triggerPatterns: [
-      /vulnerabilit/i, /cve-\d{4}/i,
-      /patch/i, /remediat/i,
+      /vulnerabilit/i, /cve/i,
+      /patch/i, /remediat/i, /unpatched/i,
       /expos(ed|ure)/i, /attack\s*surface/i,
-      /scan/i,
+      /scan/i, /exploit/i, /cvss/i, /severity/i,
       /@rva\b/i,
     ],
   },
@@ -406,50 +407,103 @@ function generateAgentResponse(agent: GatraAgentDef, message: string): string {
 
     // ── RVA: Risk & Vulnerability Agent ───────────────────────────
     case 'rva': {
-      // Specific CVE lookup
-      if (/cve-\d{4}/i.test(message)) {
+      const cves = getCachedCVEFeed() ?? [];
+      const critCves = cves.filter(c => c.severity === 'CRITICAL');
+      const highCves = cves.filter(c => c.severity === 'HIGH');
+      const kevCves = cves.filter(c => c.exploitedInWild);
+      const formatCve = (c: typeof cves[0]) => {
+        const score = c.cvssScore !== null ? c.cvssScore.toFixed(1) : 'N/A';
+        const kev = c.exploitedInWild ? ' [KEV]' : '';
+        const desc = c.description.length > 80 ? c.description.slice(0, 77) + '...' : c.description;
+        return `\u2022 ${c.id} (CVSS: ${score}, ${c.severity})${kev}\n  ${desc}`;
+      };
+
+      // Specific CVE ID lookup (e.g. CVE-2026-1234)
+      if (/cve-\d{4}-\d+/i.test(message)) {
         const cveMatch = message.match(/cve-\d{4}-\d+/i);
-        const cveId = cveMatch?.[0]?.toUpperCase() ?? 'referenced CVE';
-        return `Vulnerability lookup: ${cveId}\n` +
-          `\u2022 Severity: checking NVD database...\n` +
-          `\u2022 CISA KEV status: ${Math.random() > 0.5 ? 'LISTED \u2014 active exploitation reported' : 'Not in KEV catalog'}\n` +
-          `\u2022 EPSS (30-day probability): ${(Math.random() * 0.4 + 0.1).toFixed(2)}\n` +
-          `\u2022 Affected assets in infrastructure: checking...\n` +
-          `\u2022 See CVE FEED panel for full CVSS vector + references.\n` +
-          `Say "patch priority" for remediation recommendations.`;
+        const cveId = cveMatch?.[0]?.toUpperCase() ?? '';
+        const found = cves.find(c => c.id.toUpperCase() === cveId);
+        if (found) {
+          const products = found.affectedProducts.length > 0 ? found.affectedProducts.join(', ') : 'checking...';
+          return `Vulnerability: ${found.id}\n` +
+            `\u2022 CVSS: ${found.cvssScore?.toFixed(1) ?? 'N/A'} (${found.severity})\n` +
+            `\u2022 CISA KEV: ${found.exploitedInWild ? 'YES \u2014 active exploitation reported' : 'Not listed'}\n` +
+            `\u2022 CWE: ${found.cweId ?? 'N/A'}\n` +
+            `\u2022 Affected: ${products}\n` +
+            `\u2022 Published: ${found.publishedDate.toISOString().split('T')[0]}\n` +
+            `\u2022 Description: ${found.description.slice(0, 200)}${found.description.length > 200 ? '...' : ''}\n` +
+            (found.references.length > 0 ? `\u2022 Ref: ${found.references[0]}\n` : '') +
+            `Say "patch priority" for remediation recommendations.`;
+        }
+        return `${cveId} not found in current feed (last 7 days).\n` +
+          `\u2022 Feed contains ${cves.length} CVEs | ${critCves.length} critical | ${kevCves.length} actively exploited\n` +
+          `\u2022 Try checking the CVE FEED panel for historical lookups.`;
       }
 
-      // Patch priority / remediation
-      if (/patch|remediat|fix|updat|upgrad/i.test(message)) {
-        return `Patch priority recommendations:\n` +
-          `1. \uD83D\uDD34 CRITICAL: CVEs with active exploits (CISA KEV listed)\n` +
-          `2. \uD83D\uDFE0 HIGH: CVSS \u22659.0 on internet-facing services\n` +
-          `3. \uD83D\uDFE1 MEDIUM: CVSS \u22657.0 on internal infrastructure\n` +
-          `4. \u26AA LOW: CVSS <7.0, no known exploits\n` +
-          `\u2022 Current KEV catalog: check CVE FEED panel\n` +
-          `\u2022 Assets scanned: ${Math.floor(Math.random() * 50 + 120)} endpoints\n` +
-          `\u2022 Last scan: ${Math.floor(Math.random() * 3 + 1)}h ago\n` +
+      // "what is the CVE" / "CVE related" / "which CVE" / "list CVE" / general CVE questions
+      if (/cve/i.test(message) && !/cve-\d{4}-\d+/i.test(message)) {
+        if (cves.length === 0) {
+          return `No CVE data cached yet. CVE FEED panel fetches from NVD every 10 minutes.\n` +
+            `\u2022 Open the CVE FEED panel to trigger a fetch.\n` +
+            `\u2022 Then ask me again for analysis.`;
+        }
+        const topCves = [...critCves, ...highCves].slice(0, 5);
+        if (topCves.length === 0) {
+          const sample = cves.slice(0, 5);
+          return `${cves.length} CVEs in feed (last 7 days). No criticals currently.\n` +
+            `Recent:\n${sample.map(formatCve).join('\n')}\n` +
+            `\u2022 ${kevCves.length} actively exploited (CISA KEV)\n` +
+            `Specify a CVE ID for detailed lookup.`;
+        }
+        return `Top vulnerabilities from CVE feed (${cves.length} total, last 7 days):\n` +
+          topCves.map(formatCve).join('\n') +
+          `\n\u2022 ${critCves.length} CRITICAL | ${highCves.length} HIGH | ${kevCves.length} actively exploited (KEV)\n` +
+          `\u2022 Correlation with active alerts: ${alerts.length > 0 ? `${alerts[0]!.mitreId} may relate to exploitation` : 'none detected'}\n` +
+          `Specify CVE ID for full details, or ask about "patch priority".`;
+      }
+
+      // Unpatched / patch priority / remediation
+      if (/unpatched|patch|remediat/i.test(message)) {
+        const urgent = [...kevCves, ...critCves.filter(c => !c.exploitedInWild)].slice(0, 5);
+        if (urgent.length === 0 && cves.length === 0) {
+          return `No CVE data cached. Open CVE FEED panel to fetch latest from NVD.\n` +
+            `General patch priority:\n` +
+            `1. CISA KEV listed (actively exploited)\n` +
+            `2. CVSS \u22659.0 on internet-facing\n` +
+            `3. CVSS \u22657.0 on internal infra`;
+        }
+        return `Patch priority (${cves.length} CVEs in feed):\n` +
+          (urgent.length > 0
+            ? `Urgent \u2014 patch these first:\n${urgent.map(formatCve).join('\n')}\n`
+            : `No critical/KEV CVEs in current feed.\n`) +
+          `\u2022 Summary: ${critCves.length} CRITICAL | ${highCves.length} HIGH | ${kevCves.length} actively exploited\n` +
+          `\u2022 Priority order: KEV \u2192 CRITICAL \u2192 HIGH \u2192 internet-facing \u2192 internal\n` +
           `Specify CVE ID for targeted assessment.`;
       }
 
-      // Vulnerability / exposure / scan
-      if (/vulnerabilit|expos|scan|risk|surface|attack\s*surface/i.test(message)) {
+      // Vulnerability / exposure / scan / attack surface
+      if (/vulnerabilit|expos|scan|surface|attack\s*surface|exploit|cvss|severity/i.test(message)) {
         return `Vulnerability exposure assessment:\n` +
-          `\u2022 Known vulnerabilities: monitoring NVD + CISA KEV feeds\n` +
-          `\u2022 Internet-facing assets: ${Math.floor(Math.random() * 20 + 15)} services exposed\n` +
-          `\u2022 Unpatched critical CVEs: ${Math.floor(Math.random() * 5)} (see CVE FEED panel)\n` +
-          `\u2022 Attack surface score: ${(Math.random() * 3 + 4).toFixed(1)}/10\n` +
-          `\u2022 Top risk: ${alerts.length > 0 ? `${alerts[0]!.mitreId} correlates with known CVEs` : 'No active correlation'}\n` +
-          `Ask about specific CVEs or say "patch priority" for recommendations.`;
+          `\u2022 CVE feed: ${cves.length} vulnerabilities (last 7 days from NVD)\n` +
+          `\u2022 Critical: ${critCves.length} | High: ${highCves.length} | Actively exploited: ${kevCves.length}\n` +
+          `\u2022 Top critical: ${critCves[0]?.id ?? 'none'} ${critCves[0] ? `(CVSS: ${critCves[0].cvssScore?.toFixed(1)})` : ''}\n` +
+          `\u2022 Active alert correlation: ${alerts.length > 0 ? `${alerts[0]!.mitreId} may indicate exploitation of known CVEs` : 'no correlation detected'}\n` +
+          `\u2022 CISA KEV watchlist: ${kevCves.length} entries match current feed\n` +
+          `Ask: "list CVEs" \u00B7 "CVE-2026-XXXX" \u00B7 "patch priority" \u00B7 "unpatched criticals"`;
       }
 
-      // Generic @rva — rich fallback
-      return `RVA Status:\n` +
-        `\u2022 CVE feeds: NVD + CISA KEV active\n` +
-        `\u2022 Monitoring: ${Math.floor(Math.random() * 50 + 120)} infrastructure assets\n` +
-        `\u2022 Unpatched criticals: ${Math.floor(Math.random() * 5)}\n` +
-        `\u2022 Last vulnerability scan: ${Math.floor(Math.random() * 3 + 1)}h ago\n` +
-        `Ask: "vulnerability exposure" \u00B7 "CVE-2026-XXXX" \u00B7 "patch priority" \u00B7 "attack surface"`;
+      // Generic @rva — rich fallback with real data
+      if (cves.length === 0) {
+        return `RVA online. No CVE data cached yet.\n` +
+          `\u2022 Open CVE FEED panel to fetch latest from NVD + CISA KEV\n` +
+          `\u2022 Then ask: "list CVEs" \u00B7 "patch priority" \u00B7 "vulnerability exposure"`;
+      }
+      return `RVA Vulnerability Summary:\n` +
+        `\u2022 CVE feed: ${cves.length} entries (last 7 days)\n` +
+        `\u2022 ${critCves.length} CRITICAL | ${highCves.length} HIGH | ${kevCves.length} actively exploited (KEV)\n` +
+        (critCves[0] ? `\u2022 Top critical: ${critCves[0].id} (CVSS: ${critCves[0].cvssScore?.toFixed(1) ?? 'N/A'})\n` : '') +
+        (kevCves[0] ? `\u2022 Top exploited: ${kevCves[0].id} \u2014 ${kevCves[0].description.slice(0, 60)}...\n` : '') +
+        `Ask: "list CVEs" \u00B7 "CVE-2026-XXXX" \u00B7 "patch priority" \u00B7 "unpatched criticals"`;
     }
 
     default:
