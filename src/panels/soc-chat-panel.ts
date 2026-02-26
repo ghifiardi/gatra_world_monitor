@@ -51,7 +51,9 @@ const GATRA_AGENTS: GatraAgentDef[] = [
     color: '#4caf50', emoji: '\uD83D\uDD0D',
     triggerPatterns: [
       /why\s+(was|is)\s+(this|that|the\s+alert)\s+(flagged|detected|triggered)/i,
-      /anomal(y|ies)/i, /false\s*positive/i, /@ada\b/i,
+      /anomal(y|ies)/i, /false\s*positive/i,
+      /analyz(e|ing)/i, /critical/i, /explain/i, /breakdown/i, /detail/i,
+      /@ada\b/i,
     ],
   },
   {
@@ -140,6 +142,27 @@ function generateAgentResponse(agent: GatraAgentDef, message: string): string {
             `\u2022 Model retrains with feedback in next cycle (T+15m)\n` +
             `\u2022 CLA has logged this decision.`;
         }
+      }
+      if (/critical/i.test(message) || /analyz(e|ing)/i.test(message) || /explain/i.test(message) || /breakdown/i.test(message) || /detail/i.test(message)) {
+        const criticals = alerts.filter(a => a.severity === 'critical');
+        if (criticals.length === 0) return 'No critical alerts currently active. All baselines nominal.';
+        // Deduplicate by technique
+        const byTechnique = new Map<string, { a: typeof criticals[0]; count: number }>();
+        for (const a of criticals) {
+          const existing = byTechnique.get(a.mitreId);
+          if (existing) { existing.count++; }
+          else { byTechnique.set(a.mitreId, { a, count: 1 }); }
+        }
+        const lines = [...byTechnique.values()].slice(0, 6).map(({ a, count }) => {
+          const score = (0.85 + Math.random() * 0.14).toFixed(2);
+          return `\u2022 ${a.mitreId} \u2013 ${a.mitreName} (conf: ${a.confidence}%, anomaly: ${score})${count > 1 ? ` \u00D7${count}` : ''}`;
+        });
+        const topInfra = [...new Set(criticals.slice(0, 10).map(a => a.infrastructure).filter(Boolean))].slice(0, 3);
+        return `Analysis of ${criticals.length} critical alerts (${byTechnique.size} unique techniques):\n` +
+          lines.join('\n') +
+          (topInfra.length > 0 ? `\n\u2022 Affected infrastructure: ${topInfra.join(', ')}` : '') +
+          `\n\u2022 Avg confidence: ${(criticals.reduce((s, a) => s + a.confidence, 0) / criticals.length).toFixed(0)}%` +
+          `\nRecommend: Escalate top techniques to TAA for triage prioritization.`;
       }
       return `Monitoring ${alerts.length} active alerts. ${criticalCount} critical. What should I analyze?`;
     }
@@ -961,6 +984,9 @@ export class SocChatPanel {
         </div>`;
     }
 
+    // Check if user is near the bottom before replacing content
+    const wasNearBottom = this.msgsEl.scrollHeight - this.msgsEl.scrollTop - this.msgsEl.clientHeight < 80;
+
     this.msgsEl.innerHTML = html;
 
     // Attach click handlers for location cards
@@ -973,7 +999,8 @@ export class SocChatPanel {
       });
     }
 
-    this.scrollToBottom();
+    // Only auto-scroll if user was already at the bottom
+    if (wasNearBottom) this.scrollToBottom();
   }
 
   private scrollToBottom(): void {
