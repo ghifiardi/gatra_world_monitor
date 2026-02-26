@@ -101,6 +101,71 @@ function injectCSS(): void {
 }
 .a2a-card-link:hover { text-decoration: underline; }
 
+/* Card validator */
+.a2a-validator {
+  background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 4px; padding: 6px 8px; margin-bottom: 6px;
+}
+.a2a-validator-row {
+  display: flex; align-items: center; gap: 4px;
+  font-size: 10px; padding: 2px 0;
+}
+.a2a-validator-name {
+  flex: 1; color: #ccc; font-family: 'SF Mono', monospace; font-size: 9px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.a2a-validate-btn {
+  background: rgba(59,130,246,0.15); color: #3b82f6;
+  border: 1px solid rgba(59,130,246,0.3); border-radius: 3px;
+  font-size: 8px; font-weight: 600; letter-spacing: 0.3px;
+  padding: 1px 6px; cursor: pointer; text-transform: uppercase;
+  transition: background 0.15s;
+}
+.a2a-validate-btn:hover { background: rgba(59,130,246,0.25); }
+.a2a-validate-btn:disabled { opacity: 0.4; cursor: default; }
+.a2a-validate-btn.validating { color: #eab308; border-color: rgba(234,179,8,0.3); background: rgba(234,179,8,0.1); }
+
+.a2a-val-result {
+  margin-top: 4px; padding: 4px 6px;
+  background: rgba(0,0,0,0.2); border-radius: 3px;
+  font-size: 9px; font-family: 'SF Mono', monospace;
+  max-height: 140px; overflow-y: auto;
+}
+.a2a-val-result::-webkit-scrollbar { width: 3px; }
+.a2a-val-result::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
+
+.a2a-val-verdict {
+  font-weight: 700; font-size: 10px; padding: 2px 0;
+}
+.a2a-val-verdict-valid { color: #22c55e; }
+.a2a-val-verdict-valid_with_warnings { color: #eab308; }
+.a2a-val-verdict-invalid { color: #ef4444; }
+
+.a2a-val-summary {
+  display: flex; gap: 8px; font-size: 9px; padding: 2px 0 4px;
+  border-bottom: 1px solid rgba(255,255,255,0.04); margin-bottom: 3px;
+}
+.a2a-val-check {
+  display: flex; align-items: flex-start; gap: 4px;
+  padding: 1px 0; font-size: 9px; line-height: 1.3;
+}
+.a2a-val-check-icon { flex-shrink: 0; width: 12px; text-align: center; }
+.a2a-val-check-msg { color: #aaa; }
+.a2a-val-check-fail .a2a-val-check-msg { color: #ef4444; }
+.a2a-val-check-warn .a2a-val-check-msg { color: #eab308; }
+.a2a-val-check-pass .a2a-val-check-msg { color: #666; }
+
+.a2a-val-input-row {
+  display: flex; gap: 4px; margin-top: 4px;
+}
+.a2a-val-input {
+  flex: 1; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 3px; color: #ccc; font-size: 9px; font-family: 'SF Mono', monospace;
+  padding: 3px 6px; outline: none;
+}
+.a2a-val-input::placeholder { color: #555; }
+.a2a-val-input:focus { border-color: rgba(59,130,246,0.5); }
+
 /* Traffic feed */
 .a2a-traffic {
   background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.06);
@@ -219,9 +284,20 @@ function formatTime(ts: number): string {
 
 // ── Panel class ──────────────────────────────────────────────────
 
+interface ValidationResult {
+  url: string;
+  verdict: 'valid' | 'valid_with_warnings' | 'invalid';
+  summary: { total: number; pass: number; fail: number; warn: number; info: number };
+  fetchMs: number;
+  card: { name: string; version: string; skillCount: number; provider: string | null } | null;
+  checks: { id: string; category: string; severity: string; message: string; detail?: string }[];
+}
+
 export class A2aSecurityPanel extends Panel {
   private trafficTimer: ReturnType<typeof setInterval> | null = null;
   private refreshTimer: ReturnType<typeof setInterval> | null = null;
+  private validationResult: ValidationResult | null = null;
+  private validatingUrl: string | null = null;
 
   constructor() {
     super({
@@ -304,6 +380,7 @@ export class A2aSecurityPanel extends Panel {
 
     container.appendChild(this.buildPanelHeader());
     container.appendChild(this.buildColumns());
+    container.appendChild(this.buildCardValidator());
     container.appendChild(this.buildTrafficSection());
     container.appendChild(this.buildThreatSummary());
     container.appendChild(this.buildCiiPolicy());
@@ -388,6 +465,159 @@ export class A2aSecurityPanel extends Panel {
     }
 
     return section;
+  }
+
+  private buildCardValidator(): HTMLElement {
+    const agents = getAgentRegistry();
+    const section = h('div', null,
+      h('div', { className: 'a2a-section-title', style: 'margin-bottom: 4px;' }, 'CARD VALIDATOR'),
+    );
+
+    const card = h('div', { className: 'a2a-validator' });
+
+    // Show agents that have card URLs
+    for (const agent of agents.slice(0, 5)) {
+      const row = h('div', { className: 'a2a-validator-row' });
+      row.appendChild(h('span', { className: 'a2a-validator-name' }, `${statusIcon(agent.status)} ${agent.name}`));
+
+      const btn = h('button', {
+        className: `a2a-validate-btn${this.validatingUrl === agent.url ? ' validating' : ''}`,
+        disabled: this.validatingUrl !== null,
+      }, this.validatingUrl === agent.url ? 'CHECKING...' : 'VALIDATE') as HTMLButtonElement;
+
+      btn.addEventListener('click', () => this.validateCard(agent.url));
+      row.appendChild(btn);
+      card.appendChild(row);
+    }
+
+    // Custom URL input
+    const inputRow = h('div', { className: 'a2a-val-input-row' });
+    const input = h('input', {
+      className: 'a2a-val-input',
+      type: 'text',
+      placeholder: 'https://example.com/.well-known/agent.json',
+    }) as HTMLInputElement;
+    const customBtn = h('button', {
+      className: 'a2a-validate-btn',
+      disabled: this.validatingUrl !== null,
+    }, 'CHECK') as HTMLButtonElement;
+    customBtn.addEventListener('click', () => {
+      const url = input.value.trim();
+      if (url) this.validateCard(url);
+    });
+    input.addEventListener('keydown', (e: KeyboardEvent) => {
+      if (e.key === 'Enter') {
+        const url = input.value.trim();
+        if (url) this.validateCard(url);
+      }
+    });
+    inputRow.appendChild(input);
+    inputRow.appendChild(customBtn);
+    card.appendChild(inputRow);
+
+    // Validation result
+    if (this.validationResult) {
+      card.appendChild(this.buildValidationResult(this.validationResult));
+    }
+
+    section.appendChild(card);
+    return section;
+  }
+
+  private buildValidationResult(result: ValidationResult): HTMLElement {
+    const container = h('div', { className: 'a2a-val-result' });
+
+    // Verdict
+    const verdictText = result.verdict === 'valid' ? '\u2705 VALID'
+      : result.verdict === 'valid_with_warnings' ? '\u26A0\uFE0F VALID (warnings)'
+      : '\u274C INVALID';
+    container.appendChild(
+      h('div', { className: `a2a-val-verdict a2a-val-verdict-${result.verdict}` }, verdictText),
+    );
+
+    // Card info
+    if (result.card) {
+      container.appendChild(
+        h('div', { style: 'font-size: 9px; color: #aaa; padding: 1px 0;' },
+          `${result.card.name} v${result.card.version} | ${result.card.skillCount} skills | ${result.fetchMs}ms`,
+        ),
+      );
+    }
+
+    // Summary counts
+    const s = result.summary;
+    container.appendChild(
+      h('div', { className: 'a2a-val-summary' },
+        h('span', { style: 'color: #22c55e;' }, `${s.pass} pass`),
+        h('span', { style: 'color: #ef4444;' }, `${s.fail} fail`),
+        h('span', { style: 'color: #eab308;' }, `${s.warn} warn`),
+        h('span', { style: 'color: #888;' }, `${s.info} info`),
+      ),
+    );
+
+    // Show failed and warning checks (skip passes to save space)
+    const important = result.checks.filter(c => c.severity === 'fail' || c.severity === 'warn');
+    for (const chk of important.slice(0, 12)) {
+      const icon = chk.severity === 'fail' ? '\u274C' : '\u26A0\uFE0F';
+      container.appendChild(
+        h('div', { className: `a2a-val-check a2a-val-check-${chk.severity}` },
+          h('span', { className: 'a2a-val-check-icon' }, icon),
+          h('span', { className: 'a2a-val-check-msg' }, chk.message),
+        ),
+      );
+    }
+
+    // If all passed, show a few passes
+    if (important.length === 0) {
+      const passes = result.checks.filter(c => c.severity === 'pass').slice(0, 4);
+      for (const chk of passes) {
+        container.appendChild(
+          h('div', { className: `a2a-val-check a2a-val-check-pass` },
+            h('span', { className: 'a2a-val-check-icon' }, '\u2705'),
+            h('span', { className: 'a2a-val-check-msg' }, chk.message),
+          ),
+        );
+      }
+    }
+
+    return container;
+  }
+
+  private async validateCard(url: string): Promise<void> {
+    if (this.validatingUrl) return;
+    this.validatingUrl = url;
+    this.validationResult = null;
+    this.render();
+
+    try {
+      const apiUrl = `/api/a2a/validate-card?url=${encodeURIComponent(url)}`;
+      const res = await fetch(apiUrl);
+      if (res.ok) {
+        this.validationResult = await res.json();
+      } else {
+        const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+        this.validationResult = {
+          url,
+          verdict: 'invalid',
+          summary: { total: 1, pass: 0, fail: 1, warn: 0, info: 0 },
+          fetchMs: 0,
+          card: null,
+          checks: [{ id: 'api-error', category: 'fetch', severity: 'fail', message: err.error || `Validator returned HTTP ${res.status}` }],
+        };
+      }
+    } catch (err) {
+      this.validationResult = {
+        url,
+        verdict: 'invalid',
+        summary: { total: 1, pass: 0, fail: 1, warn: 0, info: 0 },
+        fetchMs: 0,
+        card: null,
+        checks: [{ id: 'network-error', category: 'fetch', severity: 'fail', message: `Network error: ${String(err).slice(0, 100)}` }],
+      };
+    } finally {
+      this.validatingUrl = null;
+      this.render();
+    }
   }
 
   private buildTrafficSection(): HTMLElement {
