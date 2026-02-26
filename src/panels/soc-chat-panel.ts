@@ -10,9 +10,9 @@
 import { escapeHtml } from '@/utils/sanitize';
 import { getGatraSnapshot, getAlerts, getAgentStatus, getCRAActions } from '@/gatra/connector';
 import { getCachedCVEFeed } from '@/services/cve-feed';
-import { lookupIoC, detectIoCType, getRecentThreats } from '@/services/ioc-lookup';
+import { lookupIoC, getRecentThreats } from '@/services/ioc-lookup';
 import { fetchRansomwareVictims, computeRansomwareStats } from '@/services/ransomware-tracker';
-import type { GatraAlert } from '@/types';
+import type { GatraAlert, IoCType } from '@/types';
 
 // ── Types ────────────────────────────────────────────────────────
 
@@ -200,6 +200,36 @@ function severityCounts(alerts: GatraAlert[]): { critical: number; high: number;
     else low++;
   }
   return { critical, high, medium, low };
+}
+
+// ── IOC extraction from natural language ─────────────────────────
+
+const IOC_IPV4_RE = /\b(?:\d{1,3}\.){3}\d{1,3}\b/;
+const IOC_MD5_RE = /\b[0-9a-fA-F]{32}\b/;
+const IOC_SHA1_RE = /\b[0-9a-fA-F]{40}\b/;
+const IOC_SHA256_RE = /\b[0-9a-fA-F]{64}\b/;
+const IOC_URL_RE = /\bhttps?:\/\/[^\s)]+/i;
+const IOC_DOMAIN_RE = /\b(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+(?:com|net|org|io|ru|cn|xyz|top|info|biz|cc|tk|ml|ga|cf|gq|pw|onion)\b/i;
+
+function extractIoC(text: string): { type: IoCType; value: string } | null {
+  // Try longest/most specific first: SHA256 > SHA1 > MD5 > URL > IP > domain
+  let m: RegExpMatchArray | null;
+  m = text.match(IOC_SHA256_RE);
+  if (m) return { type: 'hash', value: m[0] };
+  m = text.match(IOC_SHA1_RE);
+  if (m) return { type: 'hash', value: m[0] };
+  m = text.match(IOC_URL_RE);
+  if (m) return { type: 'url', value: m[0] };
+  m = text.match(IOC_IPV4_RE);
+  if (m) return { type: 'ip', value: m[0] };
+  m = text.match(IOC_MD5_RE);
+  if (m) return { type: 'hash', value: m[0] };
+  m = text.match(IOC_DOMAIN_RE);
+  // Only treat as domain lookup if the message seems IOC-focused (not generic chat)
+  if (m && /lookup|scan|check|search|ioc|indicator|domain|whois|reputation/i.test(text)) {
+    return { type: 'domain', value: m[0] };
+  }
+  return null;
 }
 
 // ── Agent response generation ────────────────────────────────────
@@ -1985,8 +2015,10 @@ export class SocChatPanel {
   // ── Agent routing ──────────────────────────────────────────────
 
   private routeToAgents(text: string): void {
-    // ── IOC Lookup: detect if user pasted an IP, hash, domain, or URL ──
-    const iocType = detectIoCType(text.trim());
+    // ── IOC Lookup: extract IOC from message (bare or embedded in sentence) ──
+    const extracted = extractIoC(text);
+    const iocType = extracted ? extracted.type : 'unknown' as const;
+    const iocValue = extracted ? extracted.value : '';
     if (iocType !== 'unknown') {
       const iocSender: GatraAgentDef = {
         id: 'ioc-scan', name: 'IOC', fullName: 'IOC Scanner',
@@ -1998,10 +2030,10 @@ export class SocChatPanel {
 
       const timer = setTimeout(async () => {
         try {
-          const result = await lookupIoC(text.trim());
+          const result = await lookupIoC(iocValue);
           this.hideTyping(iocSender.id);
 
-          let response = `Live IOC Lookup \u2014 ${iocType.toUpperCase()}: ${escapeHtml(text.trim())}\n\n`;
+          let response = `Live IOC Lookup \u2014 ${iocType.toUpperCase()}: ${escapeHtml(iocValue)}\n\n`;
 
           // Show each source's results
           for (const src of result.sources) {
@@ -2050,7 +2082,7 @@ export class SocChatPanel {
           const errMsg: ChatMessage = {
             id: uid(), timestamp: Date.now(),
             sender: { id: iocSender.id, name: iocSender.name, type: 'agent', color: iocSender.color },
-            type: 'agent', content: `IOC Lookup for "${escapeHtml(text.trim())}" failed \u2014 service temporarily unavailable. Try again shortly.`,
+            type: 'agent', content: `IOC Lookup for "${escapeHtml(iocValue)}" failed \u2014 service temporarily unavailable. Try again shortly.`,
           };
           this.addMessage(errMsg);
           this.channel.postMessage(errMsg);
