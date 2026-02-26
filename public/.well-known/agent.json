@@ -1,0 +1,104 @@
+{
+  "name": "GATRA Cyber SOC",
+  "description": "GATRA (Guided Adaptive Threat Response Architecture) is an AI-driven Security Operations Center platform featuring five specialized agents that collaborate to detect anomalies, triage threats, contain incidents, enable continuous learning, and generate actionable reporting and visualizations.",
+  "version": "0.10.2",
+  "url": "https://worldmonitor-gatra.vercel.app",
+  "documentationUrl": "https://worldmonitor-gatra.vercel.app/llms-full.txt",
+  "provider": {
+    "organization": "GATRA Research",
+    "url": "https://worldmonitor-gatra.vercel.app"
+  },
+  "supportedInterfaces": [
+    {
+      "url": "https://worldmonitor-gatra.vercel.app/a2a",
+      "protocolBinding": "JSONRPC",
+      "protocolVersion": "0.3"
+    }
+  ],
+  "capabilities": {
+    "streaming": false,
+    "pushNotifications": false,
+    "stateTransitionHistory": false
+  },
+  "defaultInputModes": ["text/plain", "application/json"],
+  "defaultOutputModes": ["text/plain", "application/json"],
+  "skills": [
+    {
+      "id": "anomaly-detection",
+      "name": "ADA — Anomaly Detection Agent",
+      "description": "Performs real-time anomaly detection on network traffic, endpoint telemetry, and SIEM events using multi-objective reinforcement learning. Identifies unusual patterns, zero-day indicators, and behavioral anomalies across the monitored infrastructure.",
+      "tags": ["anomaly-detection", "machine-learning", "reinforcement-learning", "siem", "network-security"],
+      "examples": [
+        "Analyze recent network traffic for anomalous patterns",
+        "Scan endpoint telemetry for behavioral deviations",
+        "Detect zero-day indicators in the last 24 hours of SIEM events"
+      ]
+    },
+    {
+      "id": "triage-analysis",
+      "name": "TAA — Triage & Analysis Agent",
+      "description": "Triages security alerts by correlating IOCs, enriching threat intelligence from multiple feeds (AbuseIPDB, ThreatFox, VirusTotal), mapping to MITRE ATT&CK techniques, and prioritizing incidents based on severity, asset criticality, and organizational context.",
+      "tags": ["triage", "threat-intelligence", "mitre-attack", "ioc-enrichment", "alert-correlation"],
+      "examples": [
+        "Triage alert for suspicious outbound connection to 185.220.101.42",
+        "Correlate IOCs from phishing campaign with known threat actors",
+        "Map detected techniques to MITRE ATT&CK and assess kill chain stage"
+      ]
+    },
+    {
+      "id": "containment-response",
+      "name": "CRA — Containment & Response Agent",
+      "description": "Executes incident containment and response actions including host isolation, IP blocking, account suspension, and playbook-driven remediation. Follows NIST 800-61 incident response framework with automated and analyst-approved response workflows.",
+      "tags": ["incident-response", "containment", "remediation", "nist-800-61", "soar"],
+      "examples": [
+        "Isolate compromised endpoint from network",
+        "Block malicious IP addresses across perimeter firewalls",
+        "Execute ransomware containment playbook"
+      ]
+    },
+    {
+      "id": "continuous-learning",
+      "name": "CLA — Continuous Learning Agent",
+      "description": "Maintains the SOC knowledge base, tracks analyst feedback loops, updates detection models, generates post-incident reviews, and produces compliance/maturity assessments. Ensures the platform continuously improves detection accuracy and reduces false positive rates.",
+      "tags": ["continuous-learning", "knowledge-base", "model-tuning", "compliance", "post-incident-review"],
+      "examples": [
+        "Generate post-incident review for last week's ransomware response",
+        "Update detection models based on recent false positive feedback",
+        "Assess Zero Trust maturity across identity, network, and endpoint pillars"
+      ]
+    },
+    {
+      "id": "reporting-visualization",
+      "name": "RVA — Reporting & Visualization Agent",
+      "description": "Generates security dashboards, executive reports, trend analyses, and compliance documentation. Produces CII (Cyber Incident Index) scores, threat landscape summaries, and operational metrics for SOC leadership and stakeholders.",
+      "tags": ["reporting", "visualization", "cii-scoring", "executive-summary", "compliance"],
+      "examples": [
+        "Generate weekly SOC operations executive summary",
+        "Produce CII trend report for the APAC region",
+        "Create compliance status report for ISO 27001 controls"
+      ]
+    },
+    {
+      "id": "ioc-lookup",
+      "name": "IOC Scanner",
+      "description": "Performs real-time Indicator of Compromise lookups against multiple threat intelligence feeds including AbuseIPDB, ThreatFox, and VirusTotal. Supports IP addresses, domains, file hashes (MD5/SHA1/SHA256), and URLs.",
+      "tags": ["ioc", "threat-intelligence", "abuseipdb", "threatfox", "virustotal", "ip-lookup", "hash-lookup"],
+      "examples": [
+        "Look up IP address 45.33.32.156 across threat feeds",
+        "Check file hash a1b2c3d4e5f6 against known malware databases",
+        "Scan domain suspicious-site.example.com for threat indicators"
+      ]
+    }
+  ],
+  "securitySchemes": {
+    "apiKey": {
+      "type": "apiKey",
+      "in": "header",
+      "name": "X-A2A-Key",
+      "description": "API key for A2A protocol authentication. Contact GATRA Research for access."
+    }
+  },
+  "securityRequirements": [
+    { "apiKey": [] }
+  ]
+}
