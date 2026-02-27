@@ -11,6 +11,11 @@
  *   4. "Cautiously optimistic" tone — empower, don't scare
  *   5. Actionable micro-recommendations, not generic advice
  *
+ * Auto-scan (opt-in) features:
+ *   - Password breach check via HIBP Pwned Passwords (k-anonymity)
+ *   - Email domain security via DNS-over-HTTPS (SPF/DMARC/MX)
+ *   - Browser security posture (client-side only)
+ *
  * Storage key: 'worldmonitor-personal-security-posture'
  */
 
@@ -73,6 +78,30 @@ interface StorageData {
   snapshots: PostureSnapshot[];
   lastCompleted: number | null;
   reminderDismissed: number | null;
+  autoScan?: AutoScanResult | null;
+}
+
+// ── Auto-Scan Types ──────────────────────────────────────────────────
+
+type CheckStatus = 'pending' | 'running' | 'pass' | 'warn' | 'fail' | 'error';
+
+interface CheckResult {
+  status: CheckStatus;
+  label: string;
+  detail: string;
+  tip: string;
+}
+
+interface AutoScanResult {
+  timestamp: number;
+  checks: {
+    browser: CheckResult[];
+    password: CheckResult | null;
+    emailDomain: CheckResult[] | null;
+  };
+  emailDomainUsed: string | null;
+  overallGrade: string;   // A–F
+  overallColor: string;
 }
 
 // ── Constants ────────────────────────────────────────────────────────
@@ -471,8 +500,62 @@ function injectCSS(): void {
 }
 .psp-footer a:hover { text-decoration: underline; }
 
+/* Auto-Scan */
+.psp-scan-section { margin: 8px 0; }
+.psp-scan-title {
+  font-size: 10px; font-weight: 700; letter-spacing: 0.5px;
+  text-transform: uppercase; color: rgba(255,255,255,0.4);
+  margin: 8px 0 4px;
+}
+.psp-check {
+  display: flex; align-items: flex-start; gap: 8px;
+  padding: 5px 0; border-bottom: 1px solid rgba(255,255,255,0.03);
+}
+.psp-check-icon { font-size: 13px; flex-shrink: 0; margin-top: 1px; }
+.psp-check-body { flex: 1; min-width: 0; }
+.psp-check-label { font-size: 11px; font-weight: 600; color: rgba(255,255,255,0.85); }
+.psp-check-detail { font-size: 10px; color: rgba(255,255,255,0.5); margin-top: 1px; }
+.psp-check-tip { font-size: 10px; color: #eab308; margin-top: 2px; }
+
+.psp-input-row { display: flex; gap: 6px; margin: 6px 0; }
+.psp-input {
+  flex: 1; padding: 6px 10px; border-radius: 4px;
+  border: 1px solid rgba(255,255,255,0.12);
+  background: rgba(255,255,255,0.04); color: rgba(255,255,255,0.9);
+  font-size: 11px; font-family: inherit; outline: none;
+}
+.psp-input:focus { border-color: #3b82f6; }
+.psp-input::placeholder { color: rgba(255,255,255,0.25); }
+
+.psp-grade {
+  text-align: center; margin: 8px 0;
+}
+.psp-grade-letter {
+  font-size: 42px; font-weight: 800; line-height: 1;
+}
+.psp-grade-label {
+  font-size: 10px; font-weight: 600; margin-top: 2px;
+}
+
+.psp-scan-privacy {
+  display: flex; align-items: center; gap: 5px;
+  padding: 5px 8px; margin: 6px 0;
+  background: rgba(34,197,94,0.06); border-radius: 3px;
+  font-size: 9px; color: rgba(34,197,94,0.8);
+}
+
 @keyframes psp-score-fill {
   from { stroke-dashoffset: 283; }
+}
+
+@keyframes psp-spin {
+  to { transform: rotate(360deg); }
+}
+.psp-spinner {
+  display: inline-block; width: 12px; height: 12px;
+  border: 2px solid rgba(255,255,255,0.1);
+  border-top-color: #3b82f6; border-radius: 50%;
+  animation: psp-spin 0.8s linear infinite;
 }
 `;
   document.head.appendChild(style);
@@ -481,12 +564,18 @@ function injectCSS(): void {
 // ── Panel Class ──────────────────────────────────────────────────────
 
 export class PersonalSecurityPosturePanel extends Panel {
-  private data: StorageData = { snapshots: [], lastCompleted: null, reminderDismissed: null };
-  private currentView: 'dashboard' | 'assess' | 'history' = 'dashboard';
+  private data: StorageData = { snapshots: [], lastCompleted: null, reminderDismissed: null, autoScan: null };
+  private currentView: 'dashboard' | 'assess' | 'history' | 'autoscan' = 'dashboard';
   private formAnswers: AssessmentAnswers = { ...DEFAULT_ANSWERS };
-  private formStep = 0; // Current question group page
+  private formStep = 0;
   private expandedDomain: string | null = null;
   private threatContextLevel: 'low' | 'moderate' | 'elevated' | 'high' = 'low';
+
+  // Auto-scan state
+  private scanRunning = false;
+  private scanEmailDomain = '';
+  private scanPassword = '';
+  private scanResults: AutoScanResult | null = null;
 
   constructor() {
     super({
@@ -546,6 +635,16 @@ export class PersonalSecurityPosturePanel extends Panel {
         (this.formAnswers as any)[key] = target.value;
       }
     });
+
+    // Input events for auto-scan fields
+    this.content.addEventListener('input', (e: Event) => {
+      const target = e.target as HTMLInputElement;
+      if (target.matches('#psp-scan-email-domain')) {
+        this.scanEmailDomain = target.value.trim();
+      } else if (target.matches('#psp-scan-password')) {
+        this.scanPassword = target.value;
+      }
+    });
   }
 
   private handleAction(action: string): void {
@@ -584,6 +683,14 @@ export class PersonalSecurityPosturePanel extends Panel {
         break;
       case 'submit':
         this.submitAssessment();
+        break;
+      case 'autoscan':
+        this.scanResults = null;
+        this.currentView = 'autoscan';
+        this.render();
+        break;
+      case 'run-scan':
+        this.runAutoScan();
         break;
     }
   }
@@ -681,6 +788,9 @@ export class PersonalSecurityPosturePanel extends Panel {
         break;
       case 'history':
         this.setContent(this.renderHistory());
+        break;
+      case 'autoscan':
+        this.setContent(this.renderAutoScan());
         break;
       default:
         this.setContent(this.renderDashboard());
@@ -796,6 +906,7 @@ export class PersonalSecurityPosturePanel extends Panel {
     html += `<div class="psp-footer">
       <span>${daysSince !== null ? `Last assessed ${daysSince === 0 ? 'today' : daysSince + 'd ago'}` : ''}</span>
       <span style="display:flex;gap:10px;">
+        <a data-action="autoscan">Auto-Scan</a>
         <a data-action="reassess">Retake</a>
         <a data-action="history">History</a>
         <a data-action="clear" style="color:#ef4444;">Reset</a>
@@ -825,8 +936,14 @@ export class PersonalSecurityPosturePanel extends Panel {
         Start Assessment
       </button>
 
+      <div style="margin-top:10px;">
+        <button class="psp-btn psp-btn-secondary" data-action="autoscan" style="font-size:11px;padding:6px 16px;">
+          \u{1F50D} Auto-Scan Instead
+        </button>
+      </div>
+
       <div style="font-size:9px;color:rgba(255,255,255,0.25);margin-top:12px;">
-        20 questions \u00B7 ~2 minutes \u00B7 completely private
+        Assessment: 20 questions \u00B7 ~2 min \u00B7 Auto-Scan: checks breaches &amp; DNS \u00B7 ~10 sec
       </div>
     </div>`;
   }
@@ -986,4 +1103,430 @@ export class PersonalSecurityPosturePanel extends Panel {
     return html;
   }
 
+  // ── Auto-Scan View ──────────────────────────────────────────────
+
+  private renderAutoScan(): string {
+    let html = `<div class="psp-panel" style="padding:8px 12px;">`;
+
+    // Header
+    html += `<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+      <span style="font-size:12px;font-weight:600;color:rgba(255,255,255,0.9);">\u{1F50D} Auto-Scan</span>
+      <a data-action="back" style="font-size:10px;color:#3b82f6;cursor:pointer;text-decoration:none;">Back</a>
+    </div>`;
+
+    // Privacy explainer
+    html += `<div class="psp-scan-privacy">
+      \u{1F512} Password: only first 5 chars of SHA-1 hash sent (k-anonymity) \u00B7 DNS: public records only
+    </div>`;
+
+    if (this.scanResults) {
+      // Show results
+      html += this.renderScanResults();
+    } else {
+      // Input form
+      html += this.renderScanForm();
+    }
+
+    html += `</div>`;
+    return html;
+  }
+
+  private renderScanForm(): string {
+    let html = '';
+
+    // Browser checks (always run, no input needed)
+    html += `<div class="psp-scan-section">
+      <div class="psp-scan-title">\u{1F310} Browser Security (automatic)</div>
+      <div style="font-size:10px;color:rgba(255,255,255,0.45);margin-bottom:4px;">
+        These checks run entirely in your browser — nothing is sent anywhere.
+      </div>
+    </div>`;
+
+    // Password check
+    html += `<div class="psp-scan-section">
+      <div class="psp-scan-title">\u{1F511} Password Breach Check (optional)</div>
+      <div style="font-size:10px;color:rgba(255,255,255,0.45);margin-bottom:4px;">
+        Check if a password has appeared in known data breaches.
+        Uses HIBP k-anonymity — your full password never leaves this device.
+      </div>
+      <div class="psp-input-row">
+        <input type="password" id="psp-scan-password" class="psp-input"
+          placeholder="Enter a password to check" autocomplete="off"
+          value="${escapeHtml(this.scanPassword)}" />
+      </div>
+    </div>`;
+
+    // Email domain check
+    html += `<div class="psp-scan-section">
+      <div class="psp-scan-title">\u{1F4E7} Email Domain Security (optional)</div>
+      <div style="font-size:10px;color:rgba(255,255,255,0.45);margin-bottom:4px;">
+        Check if your email provider has SPF, DMARC, and MX records configured.
+        Only the domain is checked (e.g., "gmail.com"), not your email address.
+      </div>
+      <div class="psp-input-row">
+        <input type="text" id="psp-scan-email-domain" class="psp-input"
+          placeholder="Email domain (e.g. gmail.com)" autocomplete="off"
+          value="${escapeHtml(this.scanEmailDomain)}" />
+      </div>
+    </div>`;
+
+    // Run button
+    html += `<div style="text-align:center;margin-top:10px;">
+      <button class="psp-btn psp-btn-primary" data-action="run-scan" ${this.scanRunning ? 'disabled' : ''}>
+        ${this.scanRunning
+          ? '<span class="psp-spinner"></span> Scanning...'
+          : '\u{1F50D} Run Scan'}
+      </button>
+    </div>`;
+
+    return html;
+  }
+
+  private renderScanResults(): string {
+    const r = this.scanResults!;
+    let html = '';
+
+    // Grade
+    html += `<div class="psp-grade">
+      <div class="psp-grade-letter" style="color:${r.overallColor}">${escapeHtml(r.overallGrade)}</div>
+      <div class="psp-grade-label" style="color:${r.overallColor}">Security Grade</div>
+    </div>`;
+
+    // Browser checks
+    html += `<div class="psp-scan-section">
+      <div class="psp-scan-title">\u{1F310} Browser Security</div>
+      ${r.checks.browser.map(c => this.renderCheck(c)).join('')}
+    </div>`;
+
+    // Password check
+    if (r.checks.password) {
+      html += `<div class="psp-scan-section">
+        <div class="psp-scan-title">\u{1F511} Password Check</div>
+        ${this.renderCheck(r.checks.password)}
+      </div>`;
+    }
+
+    // Email domain checks
+    if (r.checks.emailDomain && r.checks.emailDomain.length > 0) {
+      html += `<div class="psp-scan-section">
+        <div class="psp-scan-title">\u{1F4E7} Email Domain: ${escapeHtml(r.emailDomainUsed || '')}</div>
+        ${r.checks.emailDomain.map(c => this.renderCheck(c)).join('')}
+      </div>`;
+    }
+
+    // Footer
+    const date = new Date(r.timestamp);
+    const dateStr = date.toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    html += `<div class="psp-footer">
+      <span>Scanned ${escapeHtml(dateStr)}</span>
+      <span style="display:flex;gap:10px;">
+        <a data-action="autoscan">Rescan</a>
+        <a data-action="back">Dashboard</a>
+      </span>
+    </div>`;
+
+    return html;
+  }
+
+  private renderCheck(c: CheckResult): string {
+    const icons: Record<CheckStatus, string> = {
+      pending: '\u{23F3}',
+      running: '\u{1F504}',
+      pass: '\u2705',
+      warn: '\u26A0\uFE0F',
+      fail: '\u274C',
+      error: '\u{1F6AB}',
+    };
+    return `<div class="psp-check">
+      <span class="psp-check-icon">${icons[c.status] || '\u2753'}</span>
+      <div class="psp-check-body">
+        <div class="psp-check-label">${escapeHtml(c.label)}</div>
+        <div class="psp-check-detail">${escapeHtml(c.detail)}</div>
+        ${c.tip && c.status !== 'pass' ? `<div class="psp-check-tip">${escapeHtml(c.tip)}</div>` : ''}
+      </div>
+    </div>`;
+  }
+
+  // ── Auto-Scan Logic ─────────────────────────────────────────────
+
+  private async runAutoScan(): Promise<void> {
+    if (this.scanRunning) return;
+    this.scanRunning = true;
+    this.render();
+
+    const browserChecks = this.runBrowserChecks();
+    let passwordCheck: CheckResult | null = null;
+    let emailDomainChecks: CheckResult[] | null = null;
+
+    // Password breach check
+    if (this.scanPassword.length > 0) {
+      passwordCheck = await this.checkPasswordBreach(this.scanPassword);
+    }
+
+    // Email domain DNS checks
+    const domain = this.extractDomain(this.scanEmailDomain);
+    if (domain) {
+      emailDomainChecks = await this.checkEmailDomainSecurity(domain);
+    }
+
+    // Compute grade
+    const allChecks = [
+      ...browserChecks,
+      ...(passwordCheck ? [passwordCheck] : []),
+      ...(emailDomainChecks || []),
+    ];
+
+    const passCount = allChecks.filter(c => c.status === 'pass').length;
+    const total = allChecks.length;
+    const ratio = total > 0 ? passCount / total : 0;
+
+    let grade: string;
+    let color: string;
+    if (ratio >= 0.9) { grade = 'A'; color = '#22c55e'; }
+    else if (ratio >= 0.75) { grade = 'B'; color = '#3b82f6'; }
+    else if (ratio >= 0.6) { grade = 'C'; color = '#eab308'; }
+    else if (ratio >= 0.4) { grade = 'D'; color = '#f97316'; }
+    else { grade = 'F'; color = '#ef4444'; }
+
+    this.scanResults = {
+      timestamp: Date.now(),
+      checks: {
+        browser: browserChecks,
+        password: passwordCheck,
+        emailDomain: emailDomainChecks,
+      },
+      emailDomainUsed: domain,
+      overallGrade: grade,
+      overallColor: color,
+    };
+
+    // Persist last scan
+    this.data.autoScan = this.scanResults;
+    this.saveToStorage();
+
+    // Clear sensitive input
+    this.scanPassword = '';
+
+    this.scanRunning = false;
+    this.setNewBadge(1, true);
+    this.render();
+  }
+
+  private runBrowserChecks(): CheckResult[] {
+    const checks: CheckResult[] = [];
+
+    // HTTPS check
+    const isHttps = location.protocol === 'https:';
+    checks.push({
+      status: isHttps ? 'pass' : 'fail',
+      label: 'HTTPS Connection',
+      detail: isHttps ? 'This page is served over a secure connection' : 'This page is NOT using HTTPS',
+      tip: 'Always verify the padlock icon in your browser address bar',
+    });
+
+    // Cookies enabled
+    const cookiesEnabled = navigator.cookieEnabled;
+    checks.push({
+      status: cookiesEnabled ? 'pass' : 'warn',
+      label: 'Cookies Enabled',
+      detail: cookiesEnabled ? 'Cookies are enabled (needed for authentication)' : 'Cookies are disabled — some sites may not work',
+      tip: 'Enable cookies but consider blocking third-party cookies',
+    });
+
+    // Do Not Track
+    const dnt = navigator.doNotTrack === '1';
+    checks.push({
+      status: dnt ? 'pass' : 'warn',
+      label: 'Do Not Track',
+      detail: dnt ? 'DNT header is enabled' : 'Do Not Track is not enabled',
+      tip: 'Enable DNT in browser settings — not all sites honor it, but it signals intent',
+    });
+
+    // Secure context
+    const isSecure = window.isSecureContext;
+    checks.push({
+      status: isSecure ? 'pass' : 'fail',
+      label: 'Secure Context',
+      detail: isSecure ? 'Running in a secure browser context' : 'Not in a secure context — some APIs restricted',
+      tip: 'Access sites via HTTPS to enable secure context features',
+    });
+
+    // WebRTC leak potential
+    const hasRTC = !!(window.RTCPeerConnection);
+    checks.push({
+      status: hasRTC ? 'warn' : 'pass',
+      label: 'WebRTC Leak Risk',
+      detail: hasRTC ? 'WebRTC is enabled — may leak your real IP behind VPN' : 'WebRTC is disabled — lower leak risk',
+      tip: 'If using a VPN, consider a browser extension to disable WebRTC',
+    });
+
+    // Hardware concurrency (fingerprinting surface)
+    const cores = navigator.hardwareConcurrency;
+    checks.push({
+      status: cores ? 'warn' : 'pass',
+      label: 'Hardware Fingerprint Exposure',
+      detail: cores ? `Browser exposes ${cores} CPU cores (used for fingerprinting)` : 'Hardware info not exposed',
+      tip: 'Use privacy-focused browsers or extensions to reduce fingerprinting surface',
+    });
+
+    return checks;
+  }
+
+  private async checkPasswordBreach(password: string): Promise<CheckResult> {
+    try {
+      // SHA-1 hash the password (browser native crypto)
+      const encoder = new TextEncoder();
+      const data = encoder.encode(password);
+      const hashBuffer = await crypto.subtle.digest('SHA-1', data);
+      const hashArray = Array.from(new Uint8Array(hashBuffer));
+      const hashHex = hashArray.map(b => b.toString(16).padStart(2, '0')).join('').toUpperCase();
+
+      const prefix = hashHex.substring(0, 5);
+      const suffix = hashHex.substring(5);
+
+      const resp = await fetch(`/api/security-check?action=pwned-password&prefix=${prefix}`);
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+
+      const result = await resp.json();
+      const match = result.entries?.find((e: { suffix: string; count: number }) => e.suffix === suffix);
+
+      if (match) {
+        return {
+          status: 'fail',
+          label: 'Password Breach Check',
+          detail: `This password has appeared in ${match.count.toLocaleString()} data breaches`,
+          tip: 'Change this password immediately — use a password manager to generate a unique one',
+        };
+      }
+      return {
+        status: 'pass',
+        label: 'Password Breach Check',
+        detail: 'This password was not found in known data breaches',
+        tip: '',
+      };
+    } catch (err) {
+      return {
+        status: 'error',
+        label: 'Password Breach Check',
+        detail: `Check failed: ${(err as Error).message}`,
+        tip: 'You can also check manually at haveibeenpwned.com/Passwords',
+      };
+    }
+  }
+
+  private async checkEmailDomainSecurity(domain: string): Promise<CheckResult[]> {
+    const results: CheckResult[] = [];
+
+    // SPF check
+    try {
+      const resp = await fetch(`/api/security-check?action=dns-spf&domain=${encodeURIComponent(domain)}`);
+      const data = await resp.json();
+      if (data.found) {
+        const record = data.records?.[0]?.data || '';
+        const hasHardFail = record.includes('-all');
+        results.push({
+          status: hasHardFail ? 'pass' : 'warn',
+          label: 'SPF Record',
+          detail: hasHardFail
+            ? `SPF configured with strict policy (-all)`
+            : `SPF found but uses soft policy (~all or ?all)`,
+          tip: hasHardFail ? '' : 'A strict SPF policy (-all) better prevents email spoofing',
+        });
+      } else {
+        results.push({
+          status: 'fail',
+          label: 'SPF Record',
+          detail: 'No SPF record found — email spoofing is possible',
+          tip: 'Contact your email provider about enabling SPF protection',
+        });
+      }
+    } catch {
+      results.push({
+        status: 'error',
+        label: 'SPF Record',
+        detail: 'Could not check SPF record',
+        tip: 'Try again later or check manually with dig/nslookup',
+      });
+    }
+
+    // DMARC check
+    try {
+      const resp = await fetch(`/api/security-check?action=dns-dmarc&domain=${encodeURIComponent(domain)}`);
+      const data = await resp.json();
+      if (data.found) {
+        const record = data.records?.[0]?.data || '';
+        const hasReject = record.includes('p=reject');
+        const hasQuarantine = record.includes('p=quarantine');
+        results.push({
+          status: hasReject ? 'pass' : hasQuarantine ? 'pass' : 'warn',
+          label: 'DMARC Record',
+          detail: hasReject
+            ? 'DMARC configured with reject policy — strong protection'
+            : hasQuarantine
+            ? 'DMARC configured with quarantine policy — good protection'
+            : 'DMARC found but policy may be too permissive (p=none)',
+          tip: hasReject || hasQuarantine ? '' : 'A reject or quarantine DMARC policy prevents phishing from your domain',
+        });
+      } else {
+        results.push({
+          status: 'fail',
+          label: 'DMARC Record',
+          detail: 'No DMARC record found — vulnerable to email impersonation',
+          tip: 'DMARC protects against someone sending emails pretending to be your domain',
+        });
+      }
+    } catch {
+      results.push({
+        status: 'error',
+        label: 'DMARC Record',
+        detail: 'Could not check DMARC record',
+        tip: 'Try again later',
+      });
+    }
+
+    // MX check
+    try {
+      const resp = await fetch(`/api/security-check?action=dns-mx&domain=${encodeURIComponent(domain)}`);
+      const data = await resp.json();
+      if (data.found && data.records?.length > 0) {
+        results.push({
+          status: 'pass',
+          label: 'MX Records',
+          detail: `${data.records.length} mail server(s) configured`,
+          tip: '',
+        });
+      } else {
+        results.push({
+          status: 'warn',
+          label: 'MX Records',
+          detail: 'No MX records found — domain may not handle email',
+          tip: 'This domain may not be configured for email',
+        });
+      }
+    } catch {
+      results.push({
+        status: 'error',
+        label: 'MX Records',
+        detail: 'Could not check MX records',
+        tip: 'Try again later',
+      });
+    }
+
+    return results;
+  }
+
+  private extractDomain(input: string): string | null {
+    const trimmed = input.trim().toLowerCase();
+    if (!trimmed) return null;
+
+    // If user entered an email, extract domain
+    const atIndex = trimmed.indexOf('@');
+    const domain = atIndex >= 0 ? trimmed.substring(atIndex + 1) : trimmed;
+
+    // Basic validation
+    if (/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/.test(domain)) {
+      return domain;
+    }
+    return null;
+  }
 }
