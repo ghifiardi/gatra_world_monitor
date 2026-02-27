@@ -23,6 +23,7 @@ export const config = { runtime: 'edge' };
 
 import { checkIP, checkHash, checkDomain, hasAnyKeys, availableSources } from './_threat-intel.js';
 import { matchTechniques, deriveKillChainStage, maxSeverity, lookupById } from './_mitre-db.js';
+import { evaluateCiiTrustPolicy, buildCiiRejectionError, getTierRateLimits, TrustTier } from './_cii-trust-policy.js';
 
 // ══════════════════════════════════════════════════════════════════
 //  SECTION 1: SECURITY MIDDLEWARE
@@ -309,6 +310,7 @@ const ERR_RATE_LIMITED     = -32011;
 const ERR_PAYLOAD_TOO_LARGE = -32012;
 const ERR_INJECTION_BLOCKED = -32013;
 const ERR_DUPLICATE_REQUEST = -32014;
+const ERR_CII_POLICY        = -32015;
 
 // ══════════════════════════════════════════════════════════════════
 //  SECTION 3: MAIN HANDLER (security pipeline → protocol handler)
@@ -349,6 +351,46 @@ export default async function handler(req) {
   if (auth.required && !auth.authenticated) {
     auditLog({ event: 'auth_failed', ip: clientIp, error: auth.error });
     return jsonRpcError(null, ERR_AUTH_REQUIRED, auth.error);
+  }
+
+  // ── GATE 2.5: CII Trust Policy ────────────────────────────
+  const agentCardUrl = req.headers.get('X-Agent-Card-URL') || undefined;
+  const ciiDecision = evaluateCiiTrustPolicy(req, auth.identity || clientIp, agentCardUrl);
+
+  if (!ciiDecision.allowed) {
+    const ciiErr = buildCiiRejectionError(ciiDecision);
+    auditLog({
+      event: 'cii_policy_rejected',
+      ip: clientIp,
+      identity: auth.identity,
+      country: ciiDecision.countryCode,
+      countrySource: ciiDecision.countrySource,
+      ciiScore: ciiDecision.policy.ciiScore,
+      tier: ciiDecision.policy.tier,
+    });
+    return jsonRpcError(null, ciiErr.code, ciiErr.message, ciiErr.data);
+  }
+
+  // Apply CII-tier-aware rate limiting (tighter than Gate 1 for ELEVATED/CRITICAL)
+  if (ciiDecision.policy.tier !== TrustTier.STANDARD) {
+    const tierLimits = getTierRateLimits(ciiDecision.policy.tier);
+    const tierKey = `${clientIp}:cii:${ciiDecision.policy.tier}`;
+    const tierRate = checkRateLimit(tierKey);
+    if (!tierRate.allowed) {
+      auditLog({
+        event: 'cii_rate_limited',
+        ip: clientIp,
+        tier: ciiDecision.policy.tier,
+        country: ciiDecision.countryCode,
+      });
+      return jsonRpcError(null, ERR_RATE_LIMITED,
+        `CII trust policy rate limit exceeded (tier: ${ciiDecision.policy.tier}, ` +
+        `country: ${ciiDecision.countryCode}, CII: ${ciiDecision.policy.ciiScore.toFixed(1)}). ` +
+        `Max ${ciiDecision.policy.maxRequestsPerHour} req/hr for this region.`,
+        { tier: ciiDecision.policy.tier, ciiScore: ciiDecision.policy.ciiScore },
+        { 'Retry-After': String(Math.ceil((tierRate.retryAfterMs || 60000) / 1000)) },
+      );
+    }
   }
 
   // ── GATE 3: Payload size ────────────────────────────────────
@@ -444,13 +486,21 @@ export default async function handler(req) {
     rateRemaining: rateResult.remaining,
     injectionFindings: injectionReport?.findings?.length || 0,
     payloadBytes: rawText.length,
+    ciiTier: ciiDecision.policy.tier,
+    ciiCountry: ciiDecision.countryCode,
+    ciiScore: ciiDecision.policy.ciiScore,
+    auditLevel: ciiDecision.policy.auditLevel,
   });
 
   // ── Route to method handler ─────────────────────────────────
   let response;
   switch (method) {
     case 'message/send':
-      response = await handleMessageSend(id, params, { clientIp, identity: auth.identity, authenticated: auth.authenticated });
+      response = await handleMessageSend(id, params, {
+        clientIp, identity: auth.identity, authenticated: auth.authenticated,
+        ciiTier: ciiDecision.policy.tier, ciiCountry: ciiDecision.countryCode,
+        ciiScore: ciiDecision.policy.ciiScore,
+      });
       break;
 
     case 'tasks/get':
@@ -580,6 +630,9 @@ async function handleMessageSend(id, params, secCtx) {
         clientIp: secCtx.clientIp,
         identity: secCtx.identity,
         authenticated: secCtx.authenticated,
+        ciiTier: secCtx.ciiTier,
+        ciiCountry: secCtx.ciiCountry,
+        ciiScore: secCtx.ciiScore,
       },
     },
   };
@@ -1063,7 +1116,7 @@ function corsHeaders() {
   return {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-A2A-Key, X-Request-ID',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-A2A-Key, X-Request-ID, X-Agent-Country, X-Agent-Card-URL',
     'Access-Control-Max-Age': '86400',
   };
 }
