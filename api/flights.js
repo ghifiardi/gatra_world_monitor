@@ -132,4 +132,6 @@ export default async function handler(req, res) {
 
 export const config = {
   maxDuration: 30,
+  // Deploy to European region — OpenSky (Swiss) blocks US cloud IPs
+  regions: ['fra1'],
 };
