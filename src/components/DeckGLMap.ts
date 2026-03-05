@@ -1061,6 +1061,9 @@ export class DeckGLMap {
     }
 
     // Gulf air traffic layer (all flights — military + commercial)
+    if (this.gulfFlights.length > 0 || mapLayers.flights) {
+      console.log(`[buildLayers] Gulf flights: ${this.gulfFlights.length}, layer=${mapLayers.flights}`);
+    }
     if (mapLayers.flights && this.gulfFlights.length > 0) {
       const airborne = this.gulfFlights.filter(f => !f.onGround);
       if (airborne.length > 0) {
@@ -1748,12 +1751,13 @@ export class DeckGLMap {
     return new ScatterplotLayer({
       id: 'gulf-flights-layer',
       data: flights,
-      getPosition: (d) => [d.lon, d.lat],
-      getRadius: (d) => d.isMilitary ? 8000 : 4000,
-      getFillColor: (d) => d.isMilitary ? COLORS.flightMilitary : COLORS.flightCommercial,
-      radiusMinPixels: 2,
-      radiusMaxPixels: 8,
+      getPosition: (d: GulfFlight) => [d.lon, d.lat],
+      getRadius: (d: GulfFlight) => d.isMilitary ? 12000 : 6000,
+      getFillColor: (d: GulfFlight) => d.isMilitary ? COLORS.flightMilitary : COLORS.flightCommercial,
+      radiusMinPixels: 4,
+      radiusMaxPixels: 12,
       pickable: true,
+      opacity: 0.9,
     });
   }
 
@@ -3385,6 +3389,7 @@ export class DeckGLMap {
 
   public setGulfFlights(flights: GulfFlight[]): void {
     this.gulfFlights = flights;
+    console.log(`[DeckGLMap.setGulfFlights] ${flights.length} flights received, layers.flights=${this.state.layers.flights}`);
     this.render();
   }
 

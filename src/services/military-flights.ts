@@ -638,21 +638,26 @@ function parseAirplanesLiveData(data: AirplanesLiveResponse): GulfFlight[] {
  * The proxy queries airplanes.live across multiple coverage points and deduplicates.
  */
 export async function fetchAllGulfFlights(): Promise<GulfFlight[]> {
+  console.log('[Gulf Flights] fetchAllGulfFlights() called');
   return gulfBreaker.execute(async () => {
     // Check cache
     if (gulfFlightCache && Date.now() - gulfFlightCache.timestamp < GULF_CACHE_TTL) {
+      console.log(`[Gulf Flights] Returning cached data: ${gulfFlightCache.data.length} flights`);
       return gulfFlightCache.data;
     }
 
+    console.log('[Gulf Flights] Fetching /api/flights...');
     const response = await fetch('/api/flights', {
       headers: { 'Accept': 'application/json' },
     });
 
     if (!response.ok) {
+      console.error(`[Gulf Flights] Proxy returned ${response.status}`);
       throw new Error(`Flights proxy returned ${response.status}`);
     }
 
     const data: AirplanesLiveResponse = await response.json();
+    console.log(`[Gulf Flights] Raw response: ${data.ac?.length || 0} aircraft in response`);
     const flights = parseAirplanesLiveData(data);
 
     // Update cache
