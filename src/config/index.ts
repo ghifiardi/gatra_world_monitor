@@ -115,3 +115,12 @@ export {
 
 // Gulf FDI investment database
 export { GULF_INVESTMENTS } from './gulf-fdi';
+
+// Asset Profile for GATRA relevance scoring
+export {
+  DEFAULT_ASSET_PROFILE,
+  getActiveAssetProfile,
+  setActiveAssetProfile,
+  type AssetProfile,
+  type AssetProfileEntry,
+} from './asset-profile';

@@ -1313,6 +1313,20 @@ export interface GatraAlert {
   infrastructure: string;
   timestamp: Date;
   agent: GatraAgentName;
+
+  // ── Asset relevance scoring (computed by connector) ──
+  /** 0–100 relevance score against the active asset profile. */
+  relevanceScore?: number;
+  /** Matched vendor(s) from the asset profile. */
+  matchedVendors?: string[];
+  /** Matched product(s) from the asset profile. */
+  matchedProducts?: string[];
+  /** Whether the alert is relevant to the customer's industry. */
+  industryMatch?: boolean;
+  /** Original CISA KEV vendorProject (preserved for scoring). */
+  kevVendor?: string;
+  /** Original CISA KEV product. */
+  kevProduct?: string;
 }
 
 export interface GatraAgentStatus {

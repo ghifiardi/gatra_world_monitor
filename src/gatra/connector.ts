@@ -28,6 +28,8 @@ import type {
   GatraConnectorSnapshot,
 } from '@/types';
 
+import { getActiveAssetProfile } from '@/config/asset-profile';
+
 // ── Connector state ─────────────────────────────────────────────────
 
 let _snapshot: GatraConnectorSnapshot | null = null;
@@ -138,6 +140,112 @@ function cweToMitre(cwes: string[]): { id: string; name: string } {
   return { id: 'T1190', name: 'Exploit Public-Facing Application' };
 }
 
+// ── Asset relevance scoring ─────────────────────────────────────────
+
+interface RelevanceResult {
+  score: number;
+  matchedVendors: string[];
+  matchedProducts: string[];
+  industryMatch: boolean;
+}
+
+/**
+ * Compute a 0-100 relevance score for a CISA KEV entry against the active asset profile.
+ *
+ * Scoring (max 100):
+ *   Vendor match:        40 pts  (scaled by entry weight)
+ *   Product match:       30 pts  (scaled by entry weight)
+ *   Industry keyword:    15 pts
+ *   Ransomware campaign: 10 pts
+ *   Due date urgency:     5 pts
+ */
+function computeRelevanceScore(
+  kevVendor: string,
+  kevProduct: string,
+  kevDescription: string,
+  isRansomware: boolean,
+  dueSoon: boolean,
+): RelevanceResult {
+  const profile = getActiveAssetProfile();
+  let score = 0;
+  const matchedVendors: string[] = [];
+  const matchedProducts: string[] = [];
+  let industryMatch = false;
+
+  const vendorLower = kevVendor.toLowerCase().trim();
+  const productLower = kevProduct.toLowerCase().trim();
+  const descLower = kevDescription.toLowerCase();
+
+  // 1. Vendor + Product matching (max 70 points)
+  // Two passes: first check vendor name, then check if vendor name appears in product/description
+  // (handles cases like KEV vendor "Broadcom" with product "VMware vCenter Server")
+  for (const entry of profile.vendors) {
+    const entryVendorLower = entry.vendor.toLowerCase();
+    const weight = entry.weight ?? 1.0;
+
+    // Fuzzy vendor match: either contains the other (handles "Palo Alto" vs "Palo Alto Networks")
+    const vendorMatch =
+      vendorLower.includes(entryVendorLower) ||
+      entryVendorLower.includes(vendorLower) ||
+      // Also check if our vendor name appears in the KEV product name or description
+      productLower.includes(entryVendorLower) ||
+      descLower.includes(entryVendorLower);
+
+    if (vendorMatch) {
+      matchedVendors.push(entry.vendor);
+      score += Math.round(40 * weight);
+
+      // Product match within matched vendor
+      if (entry.products && entry.products.length > 0) {
+        for (const prod of entry.products) {
+          const prodLower = prod.toLowerCase();
+          if (
+            productLower.includes(prodLower) ||
+            prodLower.includes(productLower) ||
+            descLower.includes(prodLower)
+          ) {
+            matchedProducts.push(prod);
+            score += Math.round(30 * weight);
+            break; // Only count product match once per vendor
+          }
+        }
+      } else {
+        // Vendor match but no specific products listed → partial credit
+        score += Math.round(10 * weight);
+      }
+      break; // Best vendor match wins
+    }
+  }
+
+  // 2. Industry keyword match (max 15 points)
+  for (const keyword of profile.industryKeywords) {
+    if (descLower.includes(keyword.toLowerCase())) {
+      industryMatch = true;
+      score += 15;
+      break;
+    }
+  }
+
+  // 3. Ransomware universal threat boost (10 points)
+  if (isRansomware) {
+    score += 10;
+  }
+
+  // 4. Urgency boost — CISA deadline within 7 days (5 points)
+  if (dueSoon) {
+    score += 5;
+  }
+
+  return {
+    score: Math.min(100, score),
+    matchedVendors: [...new Set(matchedVendors)],
+    matchedProducts: [...new Set(matchedProducts)],
+    industryMatch,
+  };
+}
+
+// ── CISA KEV types ──────────────────────────────────────────────────
+
 interface CisaKevEntry {
   cveID: string;
   vendorProject: string;
@@ -186,12 +294,21 @@ async function fetchFromCisaKev(): Promise<GatraConnectorSnapshot | null> {
       else if (now.getTime() - dateAdded.getTime() < 30 * 24 * 60 * 60 * 1000) severity = 'medium';
       else severity = 'low';
 
+      const desc = `${kev.vulnerabilityName} — ${kev.shortDescription}`.slice(0, 300);
+      const relevance = computeRelevanceScore(
+        kev.vendorProject,
+        kev.product,
+        desc,
+        isRansomware,
+        dueSoon,
+      );
+
       return {
         id: kev.cveID,
         severity,
         mitreId: mitre.id,
         mitreName: mitre.name,
-        description: `${kev.vulnerabilityName} — ${kev.shortDescription}`.slice(0, 300),
+        description: desc,
         confidence: isRansomware ? 99 : 95,
         lat: loc.lat,
         lon: loc.lon,
@@ -199,6 +316,13 @@ async function fetchFromCisaKev(): Promise<GatraConnectorSnapshot | null> {
         infrastructure: `${loc.infra} · ${kev.product}`,
         timestamp: dateAdded,
         agent: isRansomware ? 'ADA' as const : 'TAA' as const,
+        // Asset relevance
+        relevanceScore: relevance.score,
+        matchedVendors: relevance.matchedVendors,
+        matchedProducts: relevance.matchedProducts,
+        industryMatch: relevance.industryMatch,
+        kevVendor: kev.vendorProject,
+        kevProduct: kev.product,
       };
     });
 

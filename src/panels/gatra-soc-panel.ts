@@ -15,6 +15,7 @@
 import { Panel } from '@/components/Panel';
 import { escapeHtml } from '@/utils/sanitize';
 import { refreshGatraData, getGatraSource, getGatraSnapshot } from '@/gatra/connector';
+import { getActiveAssetProfile } from '@/config/asset-profile';
 import type {
   GatraAlert,
   GatraAgentStatus,
@@ -57,6 +58,22 @@ const KILL_CHAIN_LABELS: Record<string, string> = {
   actions: 'Actions',
 };
 
+// ── Relevance score → visual mapping ────────────────────────────────
+
+function relevanceColor(score: number): string {
+  if (score >= 80) return '#22c55e'; // Green — direct match
+  if (score >= 50) return '#eab308'; // Yellow — partial match
+  if (score >= 20) return '#6b7280'; // Gray — low relevance
+  return '#374151';                   // Dark — not matched
+}
+
+function relevanceLabel(score: number): string {
+  if (score >= 80) return 'MATCH';
+  if (score >= 50) return 'RELATED';
+  if (score >= 20) return 'LOW';
+  return 'INFO';
+}
+
 // ── Panel class ─────────────────────────────────────────────────────
 
 // ── Time range → millisecond window ───────────────────────────────
@@ -86,6 +103,7 @@ export class GatraSOCDashboardPanel extends Panel {
   private correlations: GatraCorrelation[] = [];
   private loading = false;
   private activeTimeRange: TimeRange = 'all';
+  private showRelevantOnly = false;
 
   constructor() {
     super({
@@ -94,6 +112,15 @@ export class GatraSOCDashboardPanel extends Panel {
       showCount: true,
       trackActivity: true,
       infoTooltip: 'GATRA AI-Driven SOC — 5-agent pipeline monitoring telco infrastructure. Data refreshes every 60 s.',
+    });
+
+    // Delegated click handler for relevance filter toggle
+    this.element.addEventListener('click', (e) => {
+      const target = e.target as HTMLElement;
+      if (target.dataset.action === 'toggle-relevance-filter') {
+        this.showRelevantOnly = !this.showRelevantOnly;
+        this.render();
+      }
     });
   }
 
@@ -190,6 +217,7 @@ export class GatraSOCDashboardPanel extends Panel {
     const html = [
       this.renderAgentStatusBar(),
       this.renderStatsRow(),
+      this.renderRelevanceSummary(),
       this.renderAlertFeed(),
       this.renderTAASection(),
       this.renderCRASection(),
@@ -243,30 +271,113 @@ export class GatraSOCDashboardPanel extends Panel {
     </div>`;
   }
 
+  // ── Asset relevance summary ──────────────────────────────────────
+
+  private renderRelevanceSummary(): string {
+    const profile = getActiveAssetProfile();
+    const alerts = this.alerts;
+    if (alerts.length === 0) return '';
+
+    const relevant = alerts.filter(a => (a.relevanceScore ?? 0) >= 50);
+    const directMatch = alerts.filter(a => (a.matchedVendors?.length ?? 0) > 0);
+    const pct = alerts.length > 0 ? Math.round((relevant.length / alerts.length) * 100) : 0;
+
+    const barColor = relevant.length > 0 ? '#22c55e' : '#6b7280';
+    const filterBg = this.showRelevantOnly ? '#22c55e' : 'var(--bg-tertiary, #1e293b)';
+    const filterFg = this.showRelevantOnly ? '#000' : 'inherit';
+
+    // Collect top matched vendors
+    const vendorSet = new Set<string>();
+    for (const a of directMatch) {
+      for (const v of a.matchedVendors ?? []) vendorSet.add(v);
+    }
+    const topVendors = [...vendorSet].slice(0, 6);
+
+    return `<div style="padding:8px 12px;border-bottom:1px solid var(--border-dim);font-size:12px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+        <div style="display:flex;align-items:center;gap:6px;">
+          <span style="font-size:10px;text-transform:uppercase;letter-spacing:0.5px;opacity:0.5;">Asset Relevance</span>
+          <span style="font-size:10px;opacity:0.35;font-style:italic;">${escapeHtml(profile.name)}</span>
+        </div>
+        <button data-action="toggle-relevance-filter"
+                style="font-size:9px;padding:2px 8px;border-radius:3px;border:1px solid var(--border-dim);cursor:pointer;background:${filterBg};color:${filterFg};font-weight:600;">
+          ${this.showRelevantOnly ? '✓ Relevant Only' : 'Show Relevant Only'}
+        </button>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;">
+        <span style="color:${barColor};font-weight:700;font-size:18px;">${relevant.length}</span>
+        <span style="opacity:0.6;font-size:12px;">of ${alerts.length} alerts affect your infrastructure</span>
+      </div>
+      <div style="margin-top:4px;height:4px;background:var(--bg-tertiary, #1e293b);border-radius:2px;overflow:hidden;">
+        <div style="height:100%;width:${pct}%;background:${barColor};border-radius:2px;transition:width 0.3s;"></div>
+      </div>
+      ${topVendors.length > 0 ? `<div style="margin-top:5px;display:flex;flex-wrap:wrap;gap:4px;">${topVendors.map(v => `<span style="font-size:9px;padding:1px 6px;border-radius:3px;background:rgba(34,197,94,0.15);color:#22c55e;border:1px solid rgba(34,197,94,0.3);">${escapeHtml(v)}</span>`).join('')}</div>` : ''}
+    </div>`;
+  }
+
   // ── Alert feed ────────────────────────────────────────────────────
 
   private renderAlertFeed(): string {
-    if (this.alerts.length === 0) return '<div style="padding:12px;opacity:0.5;">No alerts</div>';
+    let displayAlerts = this.alerts;
 
-    const rows = this.alerts.slice(0, 20).map((a) => {
+    // Apply relevance filter
+    if (this.showRelevantOnly) {
+      displayAlerts = displayAlerts.filter(a => (a.relevanceScore ?? 0) >= 50);
+    }
+
+    if (displayAlerts.length === 0) {
+      const msg = this.showRelevantOnly
+        ? 'No relevant alerts for your infrastructure profile.'
+        : 'No alerts';
+      return `<div style="padding:12px;opacity:0.5;">${msg}</div>`;
+    }
+
+    // Sort: relevance first, then severity
+    const sevOrder: Record<string, number> = { critical: 0, high: 1, medium: 2, low: 3 };
+    const sorted = [...displayAlerts].sort((a, b) => {
+      const relDiff = (b.relevanceScore ?? 0) - (a.relevanceScore ?? 0);
+      if (relDiff !== 0) return relDiff;
+      return (sevOrder[a.severity] ?? 4) - (sevOrder[b.severity] ?? 4);
+    });
+
+    const rows = sorted.slice(0, 20).map((a) => {
       const sevColor = SEV_COLORS[a.severity] || '#6b7280';
       const ts = this.timeAgo(a.timestamp);
+      const relScore = a.relevanceScore ?? 0;
+      const relColor = relevanceColor(relScore);
+      const relLbl = relevanceLabel(relScore);
+
+      // Matched assets line
+      const hasMatch = (a.matchedVendors?.length ?? 0) > 0;
+      const matchLine = hasMatch
+        ? `<span style="color:${relColor};font-size:10px;">● ${a.matchedVendors!.join(', ')}${(a.matchedProducts?.length ?? 0) > 0 ? ` → ${a.matchedProducts!.join(', ')}` : ''}</span>`
+        : '';
 
       return `<div style="padding:6px 12px;border-bottom:1px solid var(--border-dim);font-size:12px;display:flex;gap:8px;align-items:flex-start;">
-        <span style="background:${sevColor};color:#fff;font-size:9px;font-weight:700;padding:1px 5px;border-radius:3px;flex-shrink:0;margin-top:2px;">${a.severity.toUpperCase()}</span>
+        <div style="display:flex;flex-direction:column;gap:2px;flex-shrink:0;margin-top:2px;">
+          <span style="background:${sevColor};color:#fff;font-size:9px;font-weight:700;padding:1px 5px;border-radius:3px;text-align:center;">${a.severity.toUpperCase()}</span>
+          <span style="background:${relColor};color:#fff;font-size:8px;font-weight:600;padding:1px 4px;border-radius:2px;text-align:center;" title="Relevance: ${relScore}/100">${relLbl}</span>
+        </div>
         <div style="flex:1;min-width:0;">
           <div style="display:flex;justify-content:space-between;gap:6px;">
             <span style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(a.mitreId)} — ${escapeHtml(a.mitreName)}</span>
             <span style="opacity:0.4;flex-shrink:0;font-size:11px;">${ts}</span>
           </div>
           <div style="opacity:0.7;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${escapeHtml(a.description)}</div>
-          <div style="opacity:0.45;margin-top:2px;font-size:11px;">${escapeHtml(a.locationName)} · ${escapeHtml(a.infrastructure)} · ${a.confidence}% · ${escapeHtml(a.agent)}</div>
+          <div style="opacity:0.45;margin-top:2px;font-size:11px;">
+            ${escapeHtml(a.locationName)} · ${escapeHtml(a.infrastructure)} · ${a.confidence}% · ${escapeHtml(a.agent)}
+          </div>
+          ${matchLine ? `<div style="margin-top:2px;">${matchLine}</div>` : ''}
         </div>
       </div>`;
     }).join('');
 
+    const headerNote = this.showRelevantOnly
+      ? ` <span style="opacity:0.4;font-size:9px;">(filtered to relevant)</span>`
+      : '';
+
     return `<div style="max-height:320px;overflow-y:auto;">
-      <div style="padding:6px 12px;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;opacity:0.5;border-bottom:1px solid var(--border-dim);">Alert Feed</div>
+      <div style="padding:6px 12px;font-size:10px;text-transform:uppercase;letter-spacing:0.5px;opacity:0.5;border-bottom:1px solid var(--border-dim);">Alert Feed${headerNote}</div>
       ${rows}
     </div>`;
   }
