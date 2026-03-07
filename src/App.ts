@@ -4870,9 +4870,10 @@ export class App {
       return this.loadCyberThreats();
     }, 10 * 60 * 1000, () => CYBER_LAYER_ENABLED && this.mapLayers.cyberThreats);
 
-    // GATRA SOC data (60s refresh, cyber variant only)
+    // GATRA SOC data — DISABLED: BigQuery endpoint returning 500s, uses mock fallback only
+    // Re-enable once BigQuery connection is fixed. Was: 60 * 1000 (60s)
     if (SITE_VARIANT === 'cyber') {
-      this.scheduleRefresh('gatra', () => this.loadGatraData(), 60 * 1000, () => this.mapLayers.gatraAlerts);
+      this.scheduleRefresh('gatra', () => this.loadGatraData(), 10 * 60 * 1000, () => this.mapLayers.gatraAlerts);
 
       // CVE Feed (10 min refresh, cyber variant only)
       this.scheduleRefresh('cve-feed', () => this.loadCVEFeed(), 10 * 60 * 1000);

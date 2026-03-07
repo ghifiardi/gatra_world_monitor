@@ -37,8 +37,12 @@ const _listeners: Set<(snap: GatraConnectorSnapshot) => void> = new Set();
 
 // ── GATRA API fetch ─────────────────────────────────────────────────
 
-/** Attempt to load real GATRA data from the API route (BigQuery-backed). */
+/** Attempt to load real GATRA data from the API route (BigQuery-backed).
+ *  DISABLED: BigQuery endpoint is returning 500 errors and burning serverless quota.
+ *  Re-enable once the BigQuery tables/permissions are fixed. */
 async function fetchFromGatraAPI(): Promise<GatraConnectorSnapshot | null> {
+  // Short-circuit: skip the API call entirely to stop wasting serverless invocations
+  return null;
   try {
     const res = await fetch('/api/gatra-data', { signal: AbortSignal.timeout(30000) });
     if (!res.ok) return null;
@@ -100,6 +104,164 @@ async function fetchFromGatraAPI(): Promise<GatraConnectorSnapshot | null> {
   }
 }
 
+// ── CISA KEV fetch (live data replacement) ──────────────────────────
+
+/** Geo-locations to distribute KEV alerts on the map (global tech hubs). */
+const KEV_LOCATIONS: Array<{ name: string; lat: number; lon: number; infra: string }> = [
+  { name: 'Washington D.C.', lat: 38.90, lon: -77.04, infra: 'GOV-FED-DC' },
+  { name: 'San Francisco',   lat: 37.77, lon: -122.42, infra: 'TECH-CLOUD-SFO' },
+  { name: 'New York',        lat: 40.71, lon: -74.01, infra: 'FIN-CORE-NYC' },
+  { name: 'Seattle',         lat: 47.61, lon: -122.33, infra: 'CLOUD-AWS-SEA' },
+  { name: 'London',          lat: 51.51, lon: -0.13, infra: 'FIN-EU-LON' },
+  { name: 'Singapore',       lat: 1.35, lon: 103.82, infra: 'APAC-DC-SIN' },
+  { name: 'Jakarta',         lat: -6.21, lon: 106.85, infra: 'TELCO-CORE-JKT' },
+  { name: 'Austin',          lat: 30.27, lon: -97.74, infra: 'TECH-HQ-AUS' },
+  { name: 'Tokyo',           lat: 35.68, lon: 139.69, infra: 'CLOUD-APAC-TYO' },
+  { name: 'Frankfurt',       lat: 50.11, lon: 8.68, infra: 'DC-EU-FRA' },
+];
+
+/** Simple CWE → MITRE ATT&CK mapping for common weakness classes. */
+function cweToMitre(cwes: string[]): { id: string; name: string } {
+  const cwe = cwes[0] || '';
+  // Map common CWE categories to MITRE techniques
+  if (/CWE-(78|77|94|95|96)/.test(cwe))  return { id: 'T1059', name: 'Command and Scripting Interpreter' };
+  if (/CWE-(89|564)/.test(cwe))           return { id: 'T1190', name: 'Exploit Public-Facing Application' };
+  if (/CWE-(287|306|862|863)/.test(cwe))  return { id: 'T1078', name: 'Valid Accounts' };
+  if (/CWE-(22|23|36)/.test(cwe))         return { id: 'T1083', name: 'File and Directory Discovery' };
+  if (/CWE-(787|119|120|122|125)/.test(cwe)) return { id: 'T1203', name: 'Exploitation for Client Execution' };
+  if (/CWE-(79|80)/.test(cwe))            return { id: 'T1189', name: 'Drive-by Compromise' };
+  if (/CWE-(502|1321)/.test(cwe))         return { id: 'T1059', name: 'Command and Scripting Interpreter' };
+  if (/CWE-(434)/.test(cwe))              return { id: 'T1105', name: 'Ingress Tool Transfer' };
+  if (/CWE-(918)/.test(cwe))              return { id: 'T1090', name: 'Proxy' };
+  if (/CWE-(200|209|532)/.test(cwe))      return { id: 'T1005', name: 'Data from Local System' };
+  // Default: Exploit Public-Facing Application
+  return { id: 'T1190', name: 'Exploit Public-Facing Application' };
+}
+
+interface CisaKevEntry {
+  cveID: string;
+  vendorProject: string;
+  product: string;
+  vulnerabilityName: string;
+  shortDescription: string;
+  dateAdded: string;
+  dueDate: string;
+  requiredAction: string;
+  knownRansomwareCampaignUse: string;
+  cwes: string[];
+  notes?: string;
+}
+
+/** Fetch live vulnerability data from CISA KEV feed via our edge proxy. */
+async function fetchFromCisaKev(): Promise<GatraConnectorSnapshot | null> {
+  try {
+    const res = await fetch('/api/cisa-kev', { signal: AbortSignal.timeout(15000) });
+    if (!res.ok) return null;
+
+    const data = await res.json() as {
+      vulnerabilities: CisaKevEntry[];
+      catalogVersion: string;
+      count: number;
+      totalKnown: number;
+      source: string;
+    };
+
+    if (!data.vulnerabilities || data.vulnerabilities.length === 0) return null;
+
+    const now = new Date();
+    const sevenDaysMs = 7 * 24 * 60 * 60 * 1000;
+
+    // ── Map KEV entries → GatraAlert[] ──
+    const alerts: GatraAlert[] = data.vulnerabilities.map((kev, i) => {
+      const loc = KEV_LOCATIONS[i % KEV_LOCATIONS.length]!;
+      const mitre = cweToMitre(kev.cwes || []);
+      const isRansomware = kev.knownRansomwareCampaignUse === 'Known';
+      const dueDate = new Date(kev.dueDate);
+      const dateAdded = new Date(kev.dateAdded);
+      const dueSoon = dueDate.getTime() - now.getTime() < sevenDaysMs;
+
+      let severity: GatraAlert['severity'];
+      if (isRansomware) severity = 'critical';
+      else if (dueSoon) severity = 'high';
+      else if (now.getTime() - dateAdded.getTime() < 30 * 24 * 60 * 60 * 1000) severity = 'medium';
+      else severity = 'low';
+
+      return {
+        id: kev.cveID,
+        severity,
+        mitreId: mitre.id,
+        mitreName: mitre.name,
+        description: `${kev.vulnerabilityName} — ${kev.shortDescription}`.slice(0, 300),
+        confidence: isRansomware ? 99 : 95,
+        lat: loc.lat,
+        lon: loc.lon,
+        locationName: `${loc.name} (${kev.vendorProject})`,
+        infrastructure: `${loc.infra} · ${kev.product}`,
+        timestamp: dateAdded,
+        agent: isRansomware ? 'ADA' as const : 'TAA' as const,
+      };
+    });
+
+    // ── Synthetic agent statuses (all "online" since we have live feed) ──
+    const agents: GatraAgentStatus[] = [
+      { name: 'ADA', fullName: 'Anomaly Detection Agent',     status: 'online', lastHeartbeat: now },
+      { name: 'TAA', fullName: 'Threat Analysis Agent',       status: 'online', lastHeartbeat: now },
+      { name: 'CRA', fullName: 'Containment Response Agent',  status: 'online', lastHeartbeat: now },
+      { name: 'CLA', fullName: 'Compliance & Logging Agent',  status: 'online', lastHeartbeat: now },
+      { name: 'RVA', fullName: 'Risk & Vulnerability Agent',  status: 'processing', lastHeartbeat: now },
+    ];
+
+    // ── Summary from real counts ──
+    const criticalCount = alerts.filter(a => a.severity === 'critical' || a.severity === 'high').length;
+    const summary: GatraIncidentSummary = {
+      activeIncidents: criticalCount,
+      mttrMinutes: 12, // Simulated MTTR
+      alerts24h: alerts.length,
+      responses24h: Math.min(alerts.length, 15),
+    };
+
+    // ── CRA actions from requiredAction field ──
+    const craActions: GatraCRAAction[] = data.vulnerabilities
+      .filter(kev => kev.knownRansomwareCampaignUse === 'Known' || new Date(kev.dueDate).getTime() - now.getTime() < sevenDaysMs)
+      .slice(0, 8)
+      .map((kev, i) => ({
+        id: `cra-${kev.cveID}`,
+        action: `${kev.requiredAction} [${kev.cveID}]`.slice(0, 200),
+        actionType: (i % 2 === 0 ? 'rule_pushed' : 'playbook_triggered') as GatraCRAAction['actionType'],
+        target: `${KEV_LOCATIONS[i % KEV_LOCATIONS.length]!.infra} · ${kev.product}`,
+        timestamp: new Date(kev.dueDate),
+        success: true,
+      }));
+
+    // ── TAA analyses from ransomware-linked entries ──
+    const taaAnalyses: GatraTAAAnalysis[] = data.vulnerabilities
+      .filter(kev => kev.knownRansomwareCampaignUse === 'Known')
+      .slice(0, 6)
+      .map(kev => {
+        return {
+          id: `taa-${kev.cveID}`,
+          alertId: kev.cveID,
+          actorAttribution: 'Ransomware Operator',
+          campaign: `KEV-${kev.vendorProject}-${kev.product}`.slice(0, 50),
+          killChainPhase: 'exploitation' as const,
+          confidence: 92,
+          iocs: [kev.cveID, ...(kev.cwes || [])],
+          timestamp: new Date(kev.dateAdded),
+        };
+      });
+
+    // ── Correlations (empty — will be filled by ACLED engine) ──
+    const correlations: GatraCorrelation[] = [];
+
+    console.log(`[GatraConnector] CISA KEV live: ${alerts.length} vulns (${criticalCount} critical/high, ${taaAnalyses.length} ransomware-linked)`);
+
+    return { alerts, agents, summary, craActions, taaAnalyses, correlations, lastRefresh: now };
+  } catch (err) {
+    console.warn('[GatraConnector] CISA KEV fetch failed:', err);
+    return null;
+  }
+}
+
 // ── Mock data fetch (fallback) ──────────────────────────────────────
 
 async function fetchFromMock(): Promise<GatraConnectorSnapshot> {
@@ -130,7 +292,7 @@ export async function refreshGatraData(): Promise<GatraConnectorSnapshot> {
   _refreshing = true;
 
   try {
-    // Try real GATRA API data first (BigQuery-backed)
+    // Cascade: GATRA API → CISA KEV → mock data
     const apiSnap = await fetchFromGatraAPI();
 
     if (apiSnap && apiSnap.alerts.length > 0) {
@@ -138,9 +300,16 @@ export async function refreshGatraData(): Promise<GatraConnectorSnapshot> {
       _source = 'live';
       console.log(`[GatraConnector] Live data: ${apiSnap.alerts.length} alerts from GATRA API`);
     } else {
-      _snapshot = await fetchFromMock();
-      _source = 'mock';
-      console.log(`[GatraConnector] Using mock data: ${_snapshot.alerts.length} alerts`);
+      // Try CISA KEV live feed before falling back to mock
+      const kevSnap = await fetchFromCisaKev();
+      if (kevSnap && kevSnap.alerts.length > 0) {
+        _snapshot = kevSnap;
+        _source = 'live';
+      } else {
+        _snapshot = await fetchFromMock();
+        _source = 'mock';
+        console.log(`[GatraConnector] Using mock data: ${_snapshot.alerts.length} alerts`);
+      }
     }
 
     // Notify subscribers

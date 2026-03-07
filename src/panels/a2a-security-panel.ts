@@ -469,12 +469,12 @@ export class A2aSecurityPanel extends Panel {
     // Stream new traffic events every 5-15 seconds
     this.scheduleNextTraffic();
 
-    // Full re-render every 30 seconds
-    this.refreshTimer = setInterval(() => this.refresh(), 30000);
+    // Full re-render every 5 minutes (was 30s — reduced to save serverless quota)
+    this.refreshTimer = setInterval(() => this.refresh(), 5 * 60 * 1000);
 
-    // Phase 4: Endpoint health check every 30s
+    // Endpoint health check every 5 minutes (was 30s)
     this.checkEndpointHealth();
-    this.healthTimer = setInterval(() => this.checkEndpointHealth(), 30000);
+    this.healthTimer = setInterval(() => this.checkEndpointHealth(), 5 * 60 * 1000);
 
     // Initial render
     setTimeout(() => this.refresh(), 500);
