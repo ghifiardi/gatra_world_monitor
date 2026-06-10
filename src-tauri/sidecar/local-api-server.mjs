@@ -426,6 +426,7 @@ const SIDECAR_ALLOWED_ORIGINS = [
   /^https?:\/\/127\.0\.0\.1(:\d+)?$/,
   /^https?:\/\/tauri\.localhost(:\d+)?$/,
   /^https:\/\/(.*\.)?worldmonitor\.app$/,
+  /^https:\/\/(.*\.)?gatra\.ai$/,
 ];
 
 function getSidecarCorsOrigin(req) {
