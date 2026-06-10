@@ -38,8 +38,10 @@ export default function handler(req, res) {
   const level = normalizeLevel(url.searchParams.get('l'));
 
   const countryName = COUNTRY_NAMES[countryCode] || countryCode || 'Global';
-  const levelColor = LEVEL_COLORS[level] || '#eab308';
-  const levelLabel = LEVEL_LABELS[level] || 'MONITORING';
+  // normalizeLevel guarantees whitelisted values; escape anyway so a
+  // future regression there can't become SVG injection
+  const levelColor = escapeXml(LEVEL_COLORS[level] || '#eab308');
+  const levelLabel = escapeXml(LEVEL_LABELS[level] || 'MONITORING');
   const parsedScore = score ? Number.parseInt(score, 10) : Number.NaN;
   const scoreNum = Number.isFinite(parsedScore)
     ? Math.max(0, Math.min(100, parsedScore))
@@ -151,7 +153,7 @@ export default function handler(req, res) {
   <!-- Level badge under arc -->
   <rect x="${arcCx - (level.length * 10 + 20) / 2}" y="${arcCy + 24}" width="${level.length * 10 + 20}" height="30" rx="6" fill="${levelColor}"/>
   <text x="${arcCx}" y="${arcCy + 45}" font-family="system-ui, sans-serif" font-size="16" font-weight="700" fill="#fff" text-anchor="middle"
-    >${level.toUpperCase()}</text>
+    >${escapeXml(level.toUpperCase())}</text>
 
   <!-- Data indicators row -->
   <line x1="60" y1="430" x2="1140" y2="430" stroke="#222" stroke-width="1"/>

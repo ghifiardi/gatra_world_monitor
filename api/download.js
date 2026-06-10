@@ -64,10 +64,20 @@ export default async function handler(req) {
       return Response.redirect(RELEASES_PAGE, 302);
     }
 
+    // Only redirect to the canonical GitHub release-asset locations for
+    // this repo — never to an arbitrary URL from the API response.
+    const downloadUrl = String(asset.browser_download_url || '');
+    const isTrustedAssetUrl =
+      downloadUrl.startsWith('https://github.com/koala73/worldmonitor/releases/download/') ||
+      downloadUrl.startsWith('https://objects.githubusercontent.com/');
+    if (!isTrustedAssetUrl) {
+      return Response.redirect(RELEASES_PAGE, 302);
+    }
+
     return new Response(null, {
       status: 302,
       headers: {
-        'Location': asset.browser_download_url,
+        'Location': downloadUrl,
         'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=60',
       },
     });

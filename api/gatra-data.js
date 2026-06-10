@@ -1,6 +1,7 @@
 // Standalone Vercel Edge function — queries BigQuery for real GATRA SOC data.
 // Falls back gracefully with { error, source: 'bigquery_error' } so the
 // frontend connector can use mock data as fallback.
+import { getCorsHeaders, isDisallowedOrigin } from './_cors.js';
 export const config = { runtime: 'edge' };
 
 // ── Data sanitization — strip telco provider identifiers ──────────
@@ -631,15 +632,16 @@ function buildSnapshot(alerts, realTaaAnalyses, realCraActions) {
 // ── Main handler ───────────────────────────────────────────────────
 
 export default async function handler(req) {
+  const cors = getCorsHeaders(req);
+
   // CORS preflight
   if (req.method === 'OPTIONS') {
-    return new Response(null, {
-      status: 204,
-      headers: {
-        'Access-Control-Allow-Origin': '*',
-        'Access-Control-Allow-Methods': 'GET, OPTIONS',
-        'Access-Control-Max-Age': '86400',
-      },
+    return new Response(null, { status: 204, headers: cors });
+  }
+
+  if (isDisallowedOrigin(req)) {
+    return new Response(JSON.stringify({ error: 'Origin not allowed' }), {
+      status: 403, headers: { ...cors, 'Content-Type': 'application/json' },
     });
   }
 
@@ -647,7 +649,7 @@ export default async function handler(req) {
   if (!saKeyJson) {
     return new Response(
       JSON.stringify({ error: 'GOOGLE_SERVICE_ACCOUNT_KEY not configured', source: 'config_error' }),
-      { status: 500, headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' } },
+      { status: 500, headers: { ...cors, 'Content-Type': 'application/json' } },
     );
   }
 
@@ -660,7 +662,16 @@ export default async function handler(req) {
     const DATASET = 'gatra_database';
 
     // ── Diagnostic mode: ?diag=1 — enumerate tables & freshness ──
+    // Exposes infrastructure internals (projects, schemas, SA identity),
+    // so it requires the GATRA_DIAG_KEY secret to be set and matched.
     if (new URL(req.url).searchParams.has('diag')) {
+      const diagKey = process.env.GATRA_DIAG_KEY;
+      const providedKey = req.headers.get('x-gatra-diag-key') || new URL(req.url).searchParams.get('key');
+      if (!diagKey || providedKey !== diagKey) {
+        return new Response(JSON.stringify({ error: 'Not found' }), {
+          status: 404, headers: { ...cors, 'Content-Type': 'application/json' },
+        });
+      }
       const diagResults = {};
       // List tables in dev project
       try {
@@ -687,7 +698,12 @@ export default async function handler(req) {
       // Try sampling columns from any tables we find
       if (diagResults.devTables) {
         diagResults.tableSchemas = {};
+        const SAFE_TABLE_NAME = /^[A-Za-z_][A-Za-z0-9_-]*$/;
         for (const tbl of diagResults.devTables.slice(0, 8)) {
+          if (!SAFE_TABLE_NAME.test(tbl.name || '')) {
+            diagResults.tableSchemas[tbl.name] = { error: 'skipped: unsafe table name' };
+            continue;
+          }
           try {
             const cols = await runQuery(token, saProject,
               `SELECT column_name, data_type FROM \`${saProject}.${DATASET}\`.INFORMATION_SCHEMA.COLUMNS WHERE table_name = '${tbl.name}' ORDER BY ordinal_position`);
@@ -753,7 +769,7 @@ export default async function handler(req) {
 
       return new Response(JSON.stringify({ diag: true, saProject, saEmail: sa.client_email, ...diagResults }, null, 2), {
         status: 200,
-        headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' },
+        headers: { ...cors, 'Content-Type': 'application/json' },
       });
     }
 
@@ -932,11 +948,16 @@ export default async function handler(req) {
     const snapshot = buildSnapshot(alerts, realTaaAnalyses, realCraActions);
     snapshot.strategy = usedStrategies.join('+') || 'none';
     snapshot.rebaseOffsetH = Math.round(rebaseOffset / 3600_000);
-    // Include debug info only when ?debug=1 is passed
+    // Include debug info only when ?debug=1 is passed with the diag key —
+    // it exposes the service-account identity and project internals.
     if (new URL(req.url).searchParams.has('debug')) {
-      snapshot.strategyErrors = strategyErrors;
-      snapshot.saProject = saProject;
-      snapshot.saEmail = sa.client_email;
+      const diagKey = process.env.GATRA_DIAG_KEY;
+      const providedKey = req.headers.get('x-gatra-diag-key') || new URL(req.url).searchParams.get('key');
+      if (diagKey && providedKey === diagKey) {
+        snapshot.strategyErrors = strategyErrors;
+        snapshot.saProject = saProject;
+        snapshot.saEmail = sa.client_email;
+      }
     }
 
     // Sanitize all string fields — strip telco provider identifiers
@@ -945,16 +966,16 @@ export default async function handler(req) {
     return new Response(JSON.stringify(sanitized), {
       status: 200,
       headers: {
+        ...cors,
         'Content-Type': 'application/json',
         'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=60',
-        'Access-Control-Allow-Origin': '*',
       },
     });
   } catch (err) {
     console.error('[gatra-data] BigQuery error:', err);
     return new Response(
       JSON.stringify({ error: String(err), source: 'api_error' }),
-      { status: 500, headers: { 'Content-Type': 'application/json', 'Access-Control-Allow-Origin': '*' } },
+      { status: 500, headers: { ...cors, 'Content-Type': 'application/json' } },
     );
   }
 }

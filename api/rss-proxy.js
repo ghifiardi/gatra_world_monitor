@@ -290,7 +290,16 @@ export default async function handler(req) {
               'Accept': 'application/rss+xml, application/xml, text/xml, */*',
               'Accept-Language': 'en-US,en;q=0.9',
             },
+            // Manual so a second-hop redirect can't silently escape the
+            // ALLOWED_DOMAINS check above
+            redirect: 'manual',
           }, timeout);
+          if (redirectResponse.status >= 300 && redirectResponse.status < 400) {
+            return new Response(JSON.stringify({ error: 'Too many redirects' }), {
+              status: 502,
+              headers: { 'Content-Type': 'application/json', ...corsHeaders },
+            });
+          }
           const data = await redirectResponse.text();
           return new Response(data, {
             status: redirectResponse.status,
