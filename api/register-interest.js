@@ -10,7 +10,32 @@ const rateLimitMap = new Map();
 const RATE_LIMIT = 5;
 const RATE_WINDOW_MS = 60 * 60 * 1000;
 
-function isRateLimited(ip) {
+// Module-level Maps are per-instance and ephemeral on the edge runtime,
+// so use Upstash Redis when configured; the in-memory map remains as a
+// best-effort fallback.
+async function isRateLimited(ip) {
+  const url = process.env.UPSTASH_REDIS_REST_URL;
+  const token = process.env.UPSTASH_REDIS_REST_TOKEN;
+  if (url && token) {
+    try {
+      const key = `rl:register-interest:${ip}`;
+      const res = await fetch(`${url}/pipeline`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify([
+          ['INCR', key],
+          ['EXPIRE', key, String(Math.ceil(RATE_WINDOW_MS / 1000)), 'NX'],
+        ]),
+        signal: AbortSignal.timeout(3000),
+      });
+      if (res.ok) {
+        const results = await res.json();
+        return Number(results?.[0]?.result || 0) > RATE_LIMIT;
+      }
+    } catch {
+      // Redis unreachable — fall through to in-memory limiter
+    }
+  }
   const now = Date.now();
   const entry = rateLimitMap.get(ip);
   if (!entry || now - entry.windowStart > RATE_WINDOW_MS) {
@@ -43,7 +68,7 @@ export default async function handler(req) {
   }
 
   const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() || 'unknown';
-  if (isRateLimited(ip)) {
+  if (await isRateLimited(ip)) {
     return new Response(JSON.stringify({ error: 'Too many requests' }), {
       status: 429,
       headers: { 'Content-Type': 'application/json', ...cors },

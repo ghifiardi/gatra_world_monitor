@@ -9,7 +9,52 @@
  *   GET  /api/a2a/validate-card?url=https://example.com/.well-known/agent.json
  *   POST /api/a2a/validate-card  { "url": "https://..." }
  */
+import { getCorsHeaders, isDisallowedOrigin } from '../_cors.js';
 export const config = { runtime: 'edge' };
+
+// ── SSRF guard ────────────────────────────────────────────────────
+// This endpoint fetches a caller-supplied URL, so block loopback,
+// private-range, link-local and cloud-metadata targets. Hostname-based
+// only (the edge runtime has no DNS API), which covers IP-literal and
+// well-known-name attacks.
+
+const BLOCKED_HOSTNAMES = new Set([
+  'localhost',
+  'metadata.google.internal',
+  'metadata.goog',
+]);
+
+function isPrivateIPv4(hostname) {
+  const m = hostname.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+  if (!m) return false;
+  const [a, b] = [Number(m[1]), Number(m[2])];
+  return (
+    a === 0 || a === 10 || a === 127 ||
+    (a === 100 && b >= 64 && b <= 127) ||
+    (a === 169 && b === 254) ||
+    (a === 172 && b >= 16 && b <= 31) ||
+    (a === 192 && b === 168) ||
+    a >= 224
+  );
+}
+
+function isBlockedTarget(parsedUrl) {
+  const host = parsedUrl.hostname.toLowerCase().replace(/\.$/, '');
+  if (BLOCKED_HOSTNAMES.has(host)) return true;
+  if (host.endsWith('.localhost') || host.endsWith('.local') || host.endsWith('.internal')) return true;
+  if (isPrivateIPv4(host)) return true;
+  // IPv6 literals (URL hostname keeps brackets) — block loopback,
+  // unspecified, link-local, unique-local, and v4-mapped addresses
+  if (host.startsWith('[')) {
+    const v6 = host.slice(1, -1);
+    if (v6 === '::' || v6 === '::1') return true;
+    if (/^(fe80|fe9|fea|feb|fc|fd)/i.test(v6)) return true;
+    if (/^::ffff:/i.test(v6)) return true;
+  }
+  // Bare single-label hostnames resolve via internal search domains
+  if (!host.startsWith('[') && !host.includes('.')) return true;
+  return false;
+}
 
 // ── Validation check structure ────────────────────────────────────
 
@@ -28,12 +73,25 @@ const CAPABILITY_FIELDS = ['streaming', 'pushNotifications', 'stateTransitionHis
 
 // ── Main handler ──────────────────────────────────────────────────
 
+// Set per invocation so the corsHeaders() helper below can echo the
+// caller's (allowlisted) origin without threading req everywhere.
+let activeRequest = null;
+
 export default async function handler(req) {
+  activeRequest = req;
+
   // CORS preflight
   if (req.method === 'OPTIONS') {
     return new Response(null, {
       status: 204,
-      headers: corsHeaders(),
+      headers: getCorsHeaders(req, 'GET, POST, OPTIONS'),
+    });
+  }
+
+  if (isDisallowedOrigin(req)) {
+    return new Response(JSON.stringify({ error: 'Origin not allowed' }), {
+      status: 403,
+      headers: { ...getCorsHeaders(req, 'GET, POST, OPTIONS'), 'Content-Type': 'application/json' },
     });
   }
 
@@ -63,8 +121,12 @@ export default async function handler(req) {
     return errorResponse(400, `Invalid URL: ${cardUrl}`);
   }
 
-  if (!parsedUrl.protocol.startsWith('http')) {
+  if (parsedUrl.protocol !== 'http:' && parsedUrl.protocol !== 'https:') {
     return errorResponse(400, 'URL must use http or https protocol');
+  }
+
+  if (isBlockedTarget(parsedUrl)) {
+    return errorResponse(400, 'URL resolves to a private or internal address');
   }
 
   // ── Fetch the agent card ──────────────────────────────────────
@@ -77,10 +139,23 @@ export default async function handler(req) {
 
   try {
     const start = Date.now();
-    const res = await fetch(cardUrl, {
-      headers: { 'Accept': 'application/json', 'User-Agent': 'GATRA-A2A-Validator/1.0' },
-      signal: AbortSignal.timeout(10000),
-    });
+    // Follow redirects manually so every hop passes the SSRF guard
+    let hopUrl = parsedUrl;
+    let res;
+    for (let hop = 0; hop < 4; hop++) {
+      res = await fetch(hopUrl.href, {
+        headers: { 'Accept': 'application/json', 'User-Agent': 'GATRA-A2A-Validator/1.0' },
+        signal: AbortSignal.timeout(10000),
+        redirect: 'manual',
+      });
+      if (res.status < 300 || res.status >= 400) break;
+      const location = res.headers.get('location');
+      if (!location) break;
+      hopUrl = new URL(location, hopUrl);
+      if ((hopUrl.protocol !== 'http:' && hopUrl.protocol !== 'https:') || isBlockedTarget(hopUrl)) {
+        return errorResponse(400, 'URL redirects to a private or internal address');
+      }
+    }
     fetchMs = Date.now() - start;
     httpStatus = res.status;
     contentType = res.headers.get('content-type') || '';
@@ -534,10 +609,7 @@ function errorResponse(status, message) {
 }
 
 function corsHeaders() {
-  return {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type',
-    'Access-Control-Max-Age': '86400',
-  };
+  return activeRequest
+    ? getCorsHeaders(activeRequest, 'GET, POST, OPTIONS')
+    : { 'Access-Control-Allow-Origin': 'https://worldmonitor.app', 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS' };
 }
