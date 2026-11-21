@@ -56,6 +56,8 @@ there is no cyber script, so use `VITE_VARIANT=cyber npm run dev`.
 - Never add API keys, tokens or secrets; add new external data sources through the `api/` proxy pattern, not browser calls with keys, so keys stay server-side.
 - Don't run `desktop:*`, `tauri`, `build:desktop` or `test:e2e:visual:update*`: they build signed apps or overwrite golden screenshots.
 - Put GATRA code in its own files rather than editing upstream files where that pattern already exists, so upstream merges stay easy.
+- New RSS feeds in `src/config/feeds.ts` must also have their domain added to `ALLOWED_DOMAINS` in `api/rss-proxy.js`: the proxy rejects any other domain with HTTP 403 "Domain not allowed". Custom scrapers in `api/` (fed to `feeds.ts` as `/api/<name>`) are not proxied and need no entry.
+- Work only on your own branch. Never merge branches, push to `main` or push to another branch unless the issue asks for it: `main` reaches production only through a reviewed PR.
 
 ## Conventions
 
