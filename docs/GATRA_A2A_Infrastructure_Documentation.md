@@ -438,6 +438,7 @@ MITRE ATT&CK Mapping:
 The Country Instability Index (CII) Trust Policy Engine maps ACLED-derived conflict scores to dynamic trust tiers that govern how incoming A2A agent requests are processed. This is a core differentiator for GATRA, enabling geopolitical context-awareness in automated SOC operations.
 
 **Referenced in:**
+
 - IEEE S&P Oakland 2027 paper, Section 4.2: Geopolitical Trust Adaptation
 - GATRA investor deck, Slide 7: Differentiator - Real-time CII Integration
 
@@ -727,6 +728,7 @@ Replaced all 3 feeds with 4 targeted sources:
 ### Key Changes
 
 **Files modified:**
+
 - `src/config/feeds.ts` (line 979-984)
 - `src/config/variants/cyber.ts` (line 32-37)
 - `api/rss-proxy.js` (added `www.cnnindonesia.com` to allowed domains)
