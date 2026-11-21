@@ -23,18 +23,21 @@ GATRA adds a fourth variant (🛡️ CYBER) to World Monitor's existing World/Te
 ## GATRA Integration Features
 
 ### SOC Command Center (Cyber Variant)
+
 - **GATRA SOC Alert Panel** — live feed of anomaly detections from five AI agents (ADA, TAA, CRA, CLA, RVA) with severity coloring and MITRE ATT&CK mapping
 - **Agent Health Dashboard** — real-time status of all five GATRA agents with heartbeat monitoring and degradation alerts
 - **Active Incident Timeline** — chronological incident tracking with mean time to detect (MTTD) and mean time to respond (MTTR)
 - **Alert Map Layer** — GATRA detections plotted on the global map with pulsing markers, correlating SOC alerts with geopolitical events in the same view
 
 ### Geopolitical-Cyber Correlation Engine
+
 - **CII -> RL Reward Signal** — World Monitor's Country Instability Index feeds into GATRA's multi-objective reinforcement learning model, so the SOC automatically adjusts defensive posture when regional instability rises
 - **Submarine Cable Health -> BGP Anomaly Detection** — cable degradation near Indonesia (AAE-1, SEA-ME-WE 3/5/6, Palapa Ring) automatically lowers BGP alert thresholds in GATRA's Anomaly Detection Agent
 - **ACLED Conflicts -> Infrastructure Threat Scoring** — armed conflict events mapped against 25,000+ telco cell tower locations with RED/AMBER/GREEN proximity zones
 - **Prediction Market Early Warning** — Polymarket probability shifts >15% inject early-warning signals into GATRA's threat analysis pipeline 15-30 minutes before traditional detection
 
 ### Indonesia-Specific Intelligence
+
 - Indonesian cybersecurity RSS feeds: BSSN, Krebs on Security, Bleeping Computer, The Hacker News, Dark Reading
 - Submarine cable monitoring for Indonesia-critical routes
 - BNPB (disaster) and BMKG (meteorology) integration for Ring of Fire early warning
@@ -51,6 +54,7 @@ GATRA adds a fourth variant (🛡️ CYBER) to World Monitor's existing World/Te
 | **RVA** | Risk & Vulnerability | CVSS v4, EPSS, CISA KEV prioritization |
 
 ### Production Results
+
 - **58.4%** operational cost reduction
 - **79%** analyst workload reduction
 - **60M+** subscribers protected
