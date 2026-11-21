@@ -197,6 +197,8 @@ All four variants run from a single codebase — switch between them with one cl
 - **Temporal baseline anomaly detection** — Welford's online algorithm computes streaming mean/variance per event type, region, weekday, and month over a 90-day window. Z-score thresholds (1.5/2.0/3.0) flag deviations like "Military flights 3.2x normal for Thursday (January)" — stored in Redis via Upstash
 - **Regional convergence scoring** — when multiple signal types spike in the same geographic area, the system identifies convergence zones and escalates severity
 
+> **Selection methodology** — for the safety pattern behind escalating under a hard constraint (conformal operating points, self-maintaining drift-aware thresholds, and abstain/defer routing for uncertain signals), see [docs/CONSTRAINT_AWARE_SELECTION_PLAYBOOK.md](./docs/CONSTRAINT_AWARE_SELECTION_PLAYBOOK.md).
+
 ### Story Sharing & Social Export
 
 - **Shareable intelligence stories** — generate country-level intelligence briefs with CII scores, threat counts, theater posture, and related prediction markets
